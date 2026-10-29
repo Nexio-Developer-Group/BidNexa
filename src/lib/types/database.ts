@@ -50,6 +50,7 @@ export type Database = {
       }
       contractor_bid_items: {
         Row: {
+          committed: boolean
           created_at: string
           deviation_note: string | null
           id: string
@@ -61,8 +62,10 @@ export type Database = {
           requirement_id: string | null
           source_cell_refs: Json
           submission_id: string
+          upload_id: string | null
         }
         Insert: {
+          committed?: boolean
           created_at?: string
           deviation_note?: string | null
           id?: string
@@ -74,8 +77,10 @@ export type Database = {
           requirement_id?: string | null
           source_cell_refs?: Json
           submission_id: string
+          upload_id?: string | null
         }
         Update: {
+          committed?: boolean
           created_at?: string
           deviation_note?: string | null
           id?: string
@@ -87,6 +92,7 @@ export type Database = {
           requirement_id?: string | null
           source_cell_refs?: Json
           submission_id?: string
+          upload_id?: string | null
         }
         Relationships: []
       }
@@ -392,6 +398,7 @@ export type Database = {
           approved_at: string | null
           approved_by: string | null
           calculation_discrepancy: boolean
+          committed: boolean
           created_at: string
           custom_attributes: Json
           id: string
@@ -411,6 +418,7 @@ export type Database = {
           tender_id: string
           unit: string | null
           updated_at: string
+          upload_id: string | null
         }
         Insert: {
           amount?: number | null
@@ -422,6 +430,7 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           calculation_discrepancy?: boolean
+          committed?: boolean
           created_at?: string
           custom_attributes?: Json
           id?: string
@@ -441,6 +450,7 @@ export type Database = {
           tender_id: string
           unit?: string | null
           updated_at?: string
+          upload_id?: string | null
         }
         Update: {
           amount?: number | null
@@ -452,6 +462,7 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           calculation_discrepancy?: boolean
+          committed?: boolean
           created_at?: string
           custom_attributes?: Json
           id?: string
@@ -471,6 +482,7 @@ export type Database = {
           tender_id?: string
           unit?: string | null
           updated_at?: string
+          upload_id?: string | null
         }
         Relationships: []
       }
@@ -717,6 +729,7 @@ export type Database = {
         | "processing"
         | "review_required"
         | "approved"
+        | "draft_review"
       tender_status:
         | "draft"
         | "processing"

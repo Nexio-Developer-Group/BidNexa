@@ -3,13 +3,19 @@ import { randomUUID } from "node:crypto";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireCurrentUser } from "@/lib/org";
 import { parseWorkbook, hashBuffer } from "@/lib/excel/parser";
-import { extractContractorRows, matchRequirement } from "@/lib/validation/bid-matching";
+import { runContractorExtractionPipeline } from "@/lib/validation/pipeline";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const MAX_SIZE_BYTES = 25 * 1024 * 1024;
 
+/**
+ * Parses a contractor's quotation workbook through the same deterministic +
+ * Groq pipeline used for the tender's own BOQ, matches rows to the tender's
+ * committed requirements, and writes draft (uncommitted) bid items. Nothing
+ * here is visible in a comparison until it's reviewed and saved.
+ */
 export async function POST(request: NextRequest) {
   const user = await requireCurrentUser();
   const supabase = await createSupabaseServerClient();
@@ -45,6 +51,9 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     return NextResponse.json({ error: `Workbook could not be opened: ${(err as Error).message}` }, { status: 422 });
   }
+  if (manifest.sheetCount === 0) {
+    return NextResponse.json({ error: "Workbook contains no worksheets." }, { status: 422 });
+  }
 
   const uploadId = randomUUID();
   const storagePath = `${tender.organization_id}/${tenderId}/contractor-${uploadId}/${file.name}`;
@@ -65,7 +74,7 @@ export async function POST(request: NextRequest) {
       storage_path: storagePath,
       file_hash: fileHash,
       file_size_bytes: file.size,
-      status: "completed_with_warnings",
+      status: "queued",
       uploaded_by: user.userId,
     })
     .select()
@@ -86,66 +95,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: subError?.message ?? "Failed to record submission" }, { status: 500 });
   }
 
-  const { data: requirements } = await supabase
-    .from("tender_requirements")
-    .select("id, item_number, original_description, quantity")
-    .eq("tender_id", tenderId)
-    .eq("row_type", "item");
-
-  const reqForMatch = (requirements ?? []).map((r) => ({
-    id: r.id,
-    itemNumber: r.item_number,
-    originalDescription: r.original_description,
-    quantity: r.quantity,
-  }));
-
-  const bidRows = extractContractorRows(manifest);
-  let matchedCount = 0;
-  let unmatchedCount = 0;
-  let totalQuoted = 0;
-
-  for (const bidRow of bidRows) {
-    const match = matchRequirement(bidRow, reqForMatch);
-    const isDeviation =
-      match !== null &&
-      bidRow.quantity !== null &&
-      match.quantity !== null &&
-      Math.abs(bidRow.quantity - match.quantity) > 0.01;
-
-    if (match) matchedCount++;
-    else unmatchedCount++;
-    if (bidRow.amount) totalQuoted += bidRow.amount;
-
-    await supabase.from("contractor_bid_items").upsert(
-      {
-        submission_id: submission.id,
-        requirement_id: match?.id ?? null,
-        quoted_quantity: bidRow.quantity,
-        quoted_rate: bidRow.rate,
-        quoted_amount: bidRow.amount,
-        is_excluded: match === null,
-        is_deviation: isDeviation,
-        deviation_note: isDeviation
-          ? `Quoted qty ${bidRow.quantity} differs from tender qty ${match?.quantity}`
-          : match === null
-            ? "No matching tender requirement found for this row."
-            : null,
-        source_cell_refs: bidRow.sourceCellRefs,
-      },
-      { onConflict: "submission_id,requirement_id" }
-    );
-  }
-
-  await supabase
-    .from("contractor_submissions")
-    .update({ status: "review_required", total_quoted_amount: totalQuoted })
-    .eq("id", submission.id);
+  const result = await runContractorExtractionPipeline(supabase, {
+    uploadId,
+    tenderId,
+    submissionId: submission.id,
+    manifest,
+  });
 
   return NextResponse.json({
+    uploadId,
     submissionId: submission.id,
-    rowsExtracted: bidRows.length,
-    matchedCount,
-    unmatchedCount,
-    totalQuoted,
+    ...result,
   });
 }

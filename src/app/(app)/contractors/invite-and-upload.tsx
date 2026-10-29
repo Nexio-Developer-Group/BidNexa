@@ -42,10 +42,12 @@ export function InviteAndUpload({
       const json = await res.json();
       if (!res.ok) {
         toast.error(json.error || "Upload failed");
-      } else {
-        toast.success(`Extracted ${json.rowsExtracted} row(s) — ${json.matchedCount} matched, ${json.unmatchedCount} unmatched.`);
-        router.refresh();
+        return;
       }
+      toast.success(
+        `Extracted ${json.bidItemsCreated} item(s) — ${json.matchedCount} matched, ${json.unmatchedCount} unmatched. Review and save.`
+      );
+      router.push(`/tenders/${tenderId}/contractors/${json.submissionId}/review`);
     } finally {
       setBusy(false);
     }

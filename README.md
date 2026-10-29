@@ -47,25 +47,35 @@ rather than inventing a result for an upstream formula with no cached value.
 
 - **Extraction pipeline** (`src/lib/excel`, `src/lib/groq`, `src/lib/validation`): deterministic
   ExcelJS parsing → per-sheet chunked Groq interpretation (schema-validated, never trusted blindly) →
-  structural/semantic/financial validation → persistence. Every worksheet gets a manifest row even if
-  empty, hidden, or failed; nothing is marked "complete" while blocking issues are open.
+  structural/semantic/financial validation → **draft persistence**. Every worksheet gets a manifest
+  row even if empty, hidden, or failed; nothing is marked "complete" while blocking issues are open.
+- **Draft/commit staging**: extraction never writes directly into the "real" BOQ or comparison. Both
+  `tender_requirements` and `contractor_bid_items` carry a `committed` flag (default `false`) plus the
+  `upload_id` that produced them. A dedicated review screen — `/tenders/[id]/review` for the tender's
+  own requirement sheet, `/tenders/[id]/contractors/[submissionId]/review` for a contractor's quoted
+  sheet — shows only that upload's draft rows next to any flagged issues, lets the user correct fields
+  inline, and only an explicit **Save to DB** action flips `committed = true`. The BOQ page, the
+  comparison dashboard, and reports all filter on `committed = true`, so nothing counts until a human
+  has reviewed and saved it.
+- **Contractor sheets go through the same AI pipeline as the tender sheet** (`runContractorExtractionPipeline`
+  in `src/lib/validation/pipeline.ts`): deterministic parse → Groq interpretation → row mapping, then
+  matched against the tender's own *committed* requirements by item number first, description second
+  (`src/lib/validation/bid-matching.ts`). Unmatched rows and quantity deviations are raised as
+  `extraction_issues` exactly like the tender side, not silently dropped.
 - **Source fidelity**: `source_cells` is an append-only archive of every populated cell (value, type,
   formula, cached result, independently recalculated result via a constrained formula engine that
-  only evaluates arithmetic/SUM over known cells — never arbitrary code). Corrections made in the BOQ
-  review UI update `tender_requirements` but are audit-logged and never touch `source_cells`.
-- **Contractor bid matching** (`src/lib/validation/bid-matching.ts`) is deterministic, not AI-driven:
-  it locates the contractor workbook's header row by keyword, then matches rows to tender requirements
-  by item number first, description similarity second. This is a v1 heuristic — it assumes the
-  contractor's BOQ roughly mirrors the tender's own item structure, which is the common case but not
-  universal.
+  only evaluates arithmetic/SUM over known cells — never arbitrary code). Corrections made in a review
+  screen update the draft row but are audit-logged and never touch `source_cells`.
 - **RLS**: every table is organization-scoped via `is_org_member()` / `org_role_of()`; storage objects
   are scoped by the organization ID encoded in the object path.
 
 ## Known gaps vs. the full spec
 
-- Contractor bid import is deterministic/header-matched rather than AI-assisted (see above). A future
-  pass could route contractor sheets through the same Groq pipeline as tender sheets for looser-shaped
-  quotations.
+- Groq enforces a per-account daily token cap; a sheet (tender or contractor) that fails interpretation
+  because of it is correctly flagged as an `extraction_issue` / `partially_processed` upload rather than
+  silently producing nothing — but it does mean a quota-exhausted account can't finish extraction until
+  the cap resets. Reprocessing (`/api/tenders/[id]/uploads/[uploadId]/reprocess`) picks it back up once
+  quota is available, reusing the stored file.
 - PDF export is not implemented — only Excel (BOQ export, contractor comparison). Excel covers the
   spec's reporting requirement; PDF would be an additive follow-up.
 - The automated adversarial-workbook test suite in the spec (16 named cases) is covered in spirit by

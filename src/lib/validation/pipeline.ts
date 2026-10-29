@@ -3,6 +3,7 @@ import type { Database, TablesInsert } from "@/lib/types/database";
 import type { WorkbookManifest, SheetManifestEntry } from "@/lib/excel/types";
 import { interpretSheet } from "@/lib/groq/interpret";
 import { mapInterpretedRow, requirementToInsert } from "./mapping";
+import { matchRequirement, type TenderRequirementForMatch, type MatchedBidRow } from "./bid-matching";
 import type { InterpretedRow } from "@/lib/groq/schema";
 
 type Client = SupabaseClient<Database>;
@@ -35,6 +36,35 @@ export async function clearUploadExtractionData(supabase: Client, uploadId: stri
   await supabase.from("workbook_sheets").delete().eq("upload_id", uploadId);
 }
 
+/** Inserts the workbook_sheets row + its source_cells archive for one sheet. Shared by tender and contractor pipelines. */
+async function persistSheetManifest(supabase: Client, uploadId: string, sheet: SheetManifestEntry) {
+  const { data: sheetRow, error: sheetInsertError } = await supabase
+    .from("workbook_sheets")
+    .insert({
+      upload_id: uploadId,
+      sheet_name: sheet.sheetName,
+      position: sheet.position,
+      is_hidden: sheet.isHidden,
+      used_range: sheet.usedRange,
+      populated_cell_count: sheet.populatedCellCount,
+      formula_cell_count: sheet.formulaCellCount,
+      merged_cell_ranges: sheet.mergedCellRanges,
+      extracted_row_count: sheet.extractedRowCount,
+      extracted_column_count: sheet.extractedColumnCount,
+      processed_row_count: sheet.processedRowCount,
+      processed_cell_count: sheet.processedCellCount,
+      processing_status: sheet.processingStatus,
+      validation_status: "pending",
+      warnings: sheet.warnings,
+      errors: sheet.errors,
+    })
+    .select()
+    .single();
+
+  if (sheetRow) await persistSourceCells(supabase, sheetRow.id, sheet);
+  return { sheetRow, sheetInsertError };
+}
+
 /**
  * Runs the full extraction pipeline for an already-uploaded workbook:
  * manifest persistence -> AI interpretation per sheet -> structural/semantic/
@@ -60,35 +90,12 @@ export async function runExtractionPipeline(
   let sheetsFailed = 0;
 
   for (const sheet of manifest.sheets) {
-    const { data: sheetRow, error: sheetInsertError } = await supabase
-      .from("workbook_sheets")
-      .insert({
-        upload_id: uploadId,
-        sheet_name: sheet.sheetName,
-        position: sheet.position,
-        is_hidden: sheet.isHidden,
-        used_range: sheet.usedRange,
-        populated_cell_count: sheet.populatedCellCount,
-        formula_cell_count: sheet.formulaCellCount,
-        merged_cell_ranges: sheet.mergedCellRanges,
-        extracted_row_count: sheet.extractedRowCount,
-        extracted_column_count: sheet.extractedColumnCount,
-        processed_row_count: sheet.processedRowCount,
-        processed_cell_count: sheet.processedCellCount,
-        processing_status: sheet.processingStatus,
-        validation_status: "pending",
-        warnings: sheet.warnings,
-        errors: sheet.errors,
-      })
-      .select()
-      .single();
+    const { sheetRow, sheetInsertError } = await persistSheetManifest(supabase, uploadId, sheet);
 
     if (sheetInsertError || !sheetRow) {
       sheetsFailed++;
       continue;
     }
-
-    await persistSourceCells(supabase, sheetRow.id, sheet);
 
     if (sheet.processingStatus === "skipped_empty") {
       await supabase
@@ -153,12 +160,11 @@ export async function runExtractionPipeline(
     if (interpretation.failedChunks > 0) sheetsFailed++;
   }
 
+  // Every upload lands in draft, awaiting an explicit "Save to DB" regardless
+  // of whether issues were raised — ready_for_review covers both; a failed
+  // sheet still surfaces as partially_processed so it's distinguishable.
   const finalStatus: Database["public"]["Enums"]["upload_status"] =
-    sheetsFailed > 0
-      ? "partially_processed"
-      : totalIssues > 0
-        ? "ready_for_review"
-        : "completed_with_warnings"; // still requires human approval before "approved"
+    sheetsFailed > 0 ? "partially_processed" : "ready_for_review";
 
   await supabase.from("tender_uploads").update({ status: finalStatus }).eq("id", uploadId);
   await supabase.from("tenders").update({ status: "review_required" }).eq("id", tenderId);
@@ -251,7 +257,7 @@ async function persistSectionsAndRequirements(
     if (!mapped) continue;
 
     const sectionId = mapped.sectionName ? sectionIdByName.get(mapped.sectionName) ?? null : null;
-    const insertPayload = requirementToInsert(tenderId, sheetId, sectionId, mapped);
+    const insertPayload = requirementToInsert(tenderId, sheetId, sectionId, uploadId, mapped);
 
     const { data: reqRow } = await supabase
       .from("tender_requirements")
@@ -368,4 +374,183 @@ async function raiseIssue(
     proposed_interpretation: params.proposedInterpretation,
     reason: params.reason,
   });
+}
+
+export interface ContractorPipelineResult {
+  status: Database["public"]["Enums"]["upload_status"];
+  sheetsProcessed: number;
+  sheetsFailed: number;
+  bidItemsCreated: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  issuesRaised: number;
+}
+
+/** Mirrors clearUploadExtractionData, but for a contractor submission's bid items. */
+export async function clearSubmissionBidItems(supabase: Client, submissionId: string, uploadId: string): Promise<void> {
+  await supabase.from("contractor_bid_items").delete().eq("submission_id", submissionId);
+  await supabase.from("extraction_issues").delete().eq("upload_id", uploadId);
+  await supabase.from("workbook_sheets").delete().eq("upload_id", uploadId);
+}
+
+/**
+ * Same deterministic-parse + Groq-interpretation engine as the tender BOQ
+ * pipeline, applied to a contractor's quotation workbook. Rows are matched
+ * against the tender's already-committed requirements (by item number, then
+ * description) and written as draft contractor_bid_items — nothing counts
+ * toward a comparison until it's reviewed and saved, same as the tender side.
+ */
+export async function runContractorExtractionPipeline(
+  supabase: Client,
+  params: { uploadId: string; tenderId: string; submissionId: string; manifest: WorkbookManifest }
+): Promise<ContractorPipelineResult> {
+  const { uploadId, tenderId, submissionId, manifest } = params;
+
+  await supabase
+    .from("extraction_jobs")
+    .insert({ upload_id: uploadId, stage: "manifest", status: "running", started_at: new Date().toISOString() });
+  await supabase.from("tender_uploads").update({ status: "parsing" }).eq("id", uploadId);
+  await supabase.from("contractor_submissions").update({ status: "processing" }).eq("id", submissionId);
+
+  const { data: tenderRequirements } = await supabase
+    .from("tender_requirements")
+    .select("id, item_number, original_description, quantity")
+    .eq("tender_id", tenderId)
+    .eq("committed", true)
+    .eq("row_type", "item");
+
+  const requirementsForMatch: TenderRequirementForMatch[] = (tenderRequirements ?? []).map((r) => ({
+    id: r.id,
+    itemNumber: r.item_number,
+    originalDescription: r.original_description,
+    quantity: r.quantity,
+  }));
+
+  let sheetsFailed = 0;
+  let bidItemsCreated = 0;
+  let matchedCount = 0;
+  let unmatchedCount = 0;
+  let issuesRaised = 0;
+
+  for (const sheet of manifest.sheets) {
+    const { sheetRow, sheetInsertError } = await persistSheetManifest(supabase, uploadId, sheet);
+    if (sheetInsertError || !sheetRow) {
+      sheetsFailed++;
+      continue;
+    }
+    if (sheet.processingStatus === "skipped_empty") {
+      await supabase.from("workbook_sheets").update({ validation_status: "valid" }).eq("id", sheetRow.id);
+      continue;
+    }
+    if (sheet.processingStatus === "failed") {
+      sheetsFailed++;
+      await supabase.from("workbook_sheets").update({ validation_status: "invalid" }).eq("id", sheetRow.id);
+      continue;
+    }
+
+    const interpretation = await interpretSheet(uploadId, sheet);
+    for (const chunkError of interpretation.chunkErrors) {
+      issuesRaised++;
+      await raiseIssue(supabase, {
+        uploadId,
+        sheetId: sheetRow.id,
+        issueType: "ai_interpretation_incomplete",
+        severity: "error",
+        sourceReference: `${sheet.sheetName}!rows ${chunkError.rowRange[0]}-${chunkError.rowRange[1]}`,
+        originalValue: null,
+        proposedInterpretation: null,
+        reason: chunkError.error,
+      });
+    }
+
+    for (const row of interpretation.rows) {
+      if (row.classification === "header" || row.classification === "section") continue;
+
+      const mapped = mapInterpretedRow(row, sheet, null);
+      if (!mapped) continue;
+      // Rows with neither a rate nor an amount aren't priced quotation lines.
+      if (mapped.rate === null && mapped.amount === null) continue;
+
+      const bidRow: MatchedBidRow = {
+        sourceCellRefs: mapped.sourceCellRefs,
+        itemNumber: mapped.itemNumber,
+        description: mapped.originalDescription || null,
+        quantity: mapped.quantity,
+        rate: mapped.rate,
+        amount: mapped.amount,
+      };
+      const match = matchRequirement(bidRow, requirementsForMatch);
+      const isDeviation =
+        match !== null && mapped.quantity !== null && match.quantity !== null && Math.abs(mapped.quantity - match.quantity) > 0.01;
+
+      if (match) matchedCount++;
+      else unmatchedCount++;
+
+      await supabase.from("contractor_bid_items").insert({
+        submission_id: submissionId,
+        upload_id: uploadId,
+        requirement_id: match?.id ?? null,
+        quoted_quantity: mapped.quantity,
+        quoted_rate: mapped.rate,
+        quoted_amount: mapped.amount,
+        is_excluded: match === null,
+        is_deviation: isDeviation,
+        deviation_note: isDeviation
+          ? `Quoted qty ${mapped.quantity} differs from tender qty ${match?.quantity}`
+          : match === null
+            ? "No matching tender requirement found for this row."
+            : null,
+        source_cell_refs: mapped.sourceCellRefs,
+        committed: false,
+      });
+      bidItemsCreated++;
+
+      if (match === null) {
+        issuesRaised++;
+        await raiseIssue(supabase, {
+          uploadId,
+          sheetId: sheetRow.id,
+          issueType: "unmatched_bid_item",
+          severity: "warning",
+          sourceReference: `${sheet.sheetName}!row ${row.row_index}`,
+          originalValue: mapped.originalDescription || mapped.itemNumber,
+          proposedInterpretation: null,
+          reason: "Could not match this quoted row to a tender requirement by item number or description.",
+        });
+      } else if (isDeviation) {
+        issuesRaised++;
+        await raiseIssue(supabase, {
+          uploadId,
+          sheetId: sheetRow.id,
+          requirementId: match.id,
+          issueType: "quantity_deviation",
+          severity: "warning",
+          sourceReference: `${sheet.sheetName}!row ${row.row_index}`,
+          originalValue: String(match.quantity),
+          proposedInterpretation: mapped.quantity !== null ? String(mapped.quantity) : null,
+          reason: "Quoted quantity differs from the tender's requirement quantity.",
+        });
+      }
+    }
+
+    const sheetValidationStatus = interpretation.failedChunks > 0 ? "warnings" : "valid";
+    await supabase.from("workbook_sheets").update({ validation_status: sheetValidationStatus }).eq("id", sheetRow.id);
+    if (interpretation.failedChunks > 0) sheetsFailed++;
+  }
+
+  const finalStatus: Database["public"]["Enums"]["upload_status"] =
+    sheetsFailed > 0 ? "partially_processed" : "ready_for_review";
+
+  await supabase.from("tender_uploads").update({ status: finalStatus }).eq("id", uploadId);
+  await supabase.from("contractor_submissions").update({ status: "draft_review" }).eq("id", submissionId);
+
+  return {
+    status: finalStatus,
+    sheetsProcessed: manifest.sheets.length - sheetsFailed,
+    sheetsFailed,
+    bidItemsCreated,
+    matchedCount,
+    unmatchedCount,
+    issuesRaised,
+  };
 }

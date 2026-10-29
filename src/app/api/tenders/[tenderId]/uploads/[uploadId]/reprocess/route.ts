@@ -24,12 +24,18 @@ export async function POST(
 
   const { data: upload, error: uploadError } = await supabase
     .from("tender_uploads")
-    .select("id, tender_id, original_filename, storage_path")
+    .select("id, tender_id, original_filename, storage_path, status")
     .eq("id", uploadId)
     .single();
 
   if (uploadError || !upload || upload.tender_id !== tenderId) {
     return NextResponse.json({ error: "Upload not found." }, { status: 404 });
+  }
+  if (upload.status === "approved") {
+    return NextResponse.json(
+      { error: "This upload has already been saved to the BOQ and can't be reprocessed — it would wipe saved data." },
+      { status: 409 }
+    );
   }
 
   const { data: fileBlob, error: downloadError } = await supabase.storage

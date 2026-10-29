@@ -38,6 +38,7 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
   const uploadIds = uploads.map((u) => u.id);
   const issues = await getExtractionIssues(uploadIds);
   const openIssues = issues.filter((i) => i.review_status === "open");
+  const pendingReviewUploads = uploads.filter((u) => u.status === "ready_for_review");
 
   const totalAmount = requirements
     .filter((r) => r.row_type === "item" && r.amount !== null)
@@ -125,6 +126,25 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
         </CardContent>
       </Card>
 
+      {pendingReviewUploads.length > 0 && (
+        <Card className="border-[var(--accent)]">
+          <CardContent className="flex items-center justify-between p-4">
+            <div>
+              <p className="text-sm font-medium">
+                {pendingReviewUploads.length} upload(s) extracted but not yet saved to the BOQ.
+              </p>
+              <p className="text-xs text-[var(--muted)]">
+                Nothing from {pendingReviewUploads.map((u) => u.original_filename).join(", ")} counts toward the
+                BOQ or comparisons until you review and save it.
+              </p>
+            </div>
+            <Button size="sm" asChild>
+              <Link href={`/tenders/${tenderId}/review?uploadId=${pendingReviewUploads[0].id}`}>Review & save</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {openIssues.length > 0 && (
         <Card>
           <CardHeader>
@@ -182,7 +202,9 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
         <CardContent className="p-0">
           {requirements.length === 0 ? (
             <div className="p-8 text-center text-sm text-[var(--muted)]">
-              No BOQ items extracted yet. Upload a workbook above to get started.
+              {pendingReviewUploads.length > 0
+                ? "Items were extracted but haven't been saved yet — use Review & save above."
+                : "No BOQ items extracted yet. Upload a workbook above to get started."}
             </div>
           ) : (
             <Table>

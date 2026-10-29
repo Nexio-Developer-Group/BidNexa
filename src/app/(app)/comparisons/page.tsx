@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { requireCurrentUser } from "@/lib/org";
 import { listTenders } from "@/lib/data/tenders";
@@ -41,12 +42,20 @@ export default async function ComparisonsPage({ searchParams }: PageProps<"/comp
   const totals = submissions.map((s) => {
     const items = s.contractor_bid_items ?? [];
     const total = items.reduce((sum, i) => sum + (i.quoted_amount ? Number(i.quoted_amount) : 0), 0);
+    const tenderTotalForMatched = items.reduce((sum, i) => {
+      if (!i.requirement_id) return sum;
+      const req = requirements.find((r) => r.id === i.requirement_id);
+      return sum + (req?.amount ? Number(req.amount) : 0);
+    }, 0);
+    const diff = total - tenderTotalForMatched;
+    const marginPct = tenderTotalForMatched > 0 ? (diff / tenderTotalForMatched) * 100 : null;
     const excludedCount = items.filter((i) => i.is_excluded).length;
     const deviationCount = items.filter((i) => i.is_deviation).length;
-    return { submission: s, total, excludedCount, deviationCount };
+    return { submission: s, total, diff, marginPct, excludedCount, deviationCount };
   });
 
   const lowest = totals.length > 0 ? Math.min(...totals.filter((t) => t.total > 0).map((t) => t.total)) : 0;
+  const tenderGrandTotal = requirements.reduce((sum, r) => sum + (r.amount ? Number(r.amount) : 0), 0);
 
   return (
     <div className="flex flex-col gap-6">
@@ -54,7 +63,8 @@ export default async function ComparisonsPage({ searchParams }: PageProps<"/comp
         <div>
           <h2 className="text-xl font-semibold">Bid Comparison — {selectedTender.title}</h2>
           <p className="text-sm text-[var(--muted)]">
-            {submissions.length} contractor submission(s) · {requirements.length} priced item(s)
+            {submissions.length} contractor submission(s) · {requirements.length} priced item(s) · tender total{" "}
+            {formatCurrency(tenderGrandTotal, currency)}
           </p>
         </div>
         <Button variant="outline" asChild>
@@ -63,12 +73,17 @@ export default async function ComparisonsPage({ searchParams }: PageProps<"/comp
       </div>
 
       <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(totals.length, 4) || 1}, minmax(0, 1fr))` }}>
-        {totals.map(({ submission, total, excludedCount, deviationCount }) => (
+        {totals.map(({ submission, total, diff, marginPct, excludedCount, deviationCount }) => (
           <Card key={submission.id}>
             <CardContent className="p-4">
               <p className="text-sm font-medium">{(submission.contractors as unknown as { name: string })?.name}</p>
               <p className="mt-1 text-xl font-semibold">{formatCurrency(total, currency)}</p>
-              <div className="mt-2 flex gap-1">
+              <p className={cn("text-xs", diff > 0 ? "text-[var(--danger)]" : diff < 0 ? "text-[var(--success)]" : "text-[var(--muted)]")}>
+                {diff > 0 ? "+" : ""}
+                {formatCurrency(diff, currency)}
+                {marginPct !== null ? ` (${marginPct > 0 ? "+" : ""}${marginPct.toFixed(1)}%)` : ""} vs tender
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1">
                 {total === lowest && total > 0 && <Badge variant="success">Lowest</Badge>}
                 {excludedCount > 0 && <Badge variant="warning">{excludedCount} unmatched</Badge>}
                 {deviationCount > 0 && <Badge variant="danger">{deviationCount} deviation(s)</Badge>}
@@ -82,63 +97,120 @@ export default async function ComparisonsPage({ searchParams }: PageProps<"/comp
         <CardHeader>
           <CardTitle>Item-wise comparison</CardTitle>
           <CardDescription>
-            Financial ranking only — technical compliance and exclusions still need separate review.
+            Rate, quantity, amount, diff in value and margin % against the tender&apos;s own requirement, per
+            contractor. Financial ranking only — technical compliance and exclusions still need separate review.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Item</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead className="text-right">Tender Qty</TableHead>
+                <TableHead rowSpan={2}>Item</TableHead>
+                <TableHead rowSpan={2}>Description</TableHead>
+                <TableHead rowSpan={2} className="text-right">
+                  Req. Qty
+                </TableHead>
+                <TableHead rowSpan={2} className="text-right">
+                  Req. Rate
+                </TableHead>
+                <TableHead rowSpan={2} className="text-right">
+                  Req. Amount
+                </TableHead>
                 {submissions.map((s) => (
-                  <TableHead key={s.id} className="text-right">
+                  <TableHead key={s.id} colSpan={5} className="border-l border-[var(--border)] text-center">
                     {(s.contractors as unknown as { name: string })?.name}
                   </TableHead>
                 ))}
               </TableRow>
+              <TableRow>
+                {submissions.map((s) => (
+                  <Fragment key={s.id}>
+                    <TableHead className="border-l border-[var(--border)] text-right text-xs">Rate</TableHead>
+                    <TableHead className="text-right text-xs">Qty</TableHead>
+                    <TableHead className="text-right text-xs">Amount</TableHead>
+                    <TableHead className="text-right text-xs">Diff (₹)</TableHead>
+                    <TableHead className="text-right text-xs">Margin %</TableHead>
+                  </Fragment>
+                ))}
+              </TableRow>
             </TableHeader>
             <TableBody>
-              {requirements.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell className="font-mono text-xs">{r.item_number || "—"}</TableCell>
-                  <TableCell className="max-w-xs truncate">{r.original_description}</TableCell>
-                  <TableCell className="text-right">
-                    {formatNumber(r.quantity)} {r.unit || ""}
-                  </TableCell>
-                  {submissions.map((s) => {
-                    const item = bidItemsBySubmissionAndReq.get(s.id)?.get(r.id);
-                    if (!item) {
+              {requirements.map((r) => {
+                const reqAmount = r.amount !== null ? Number(r.amount) : null;
+                const reqRate = r.rate !== null ? Number(r.rate) : null;
+                return (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-mono text-xs">{r.item_number || "—"}</TableCell>
+                    <TableCell className="max-w-xs truncate">{r.original_description}</TableCell>
+                    <TableCell className="text-right">
+                      {formatNumber(r.quantity)} {r.unit || ""}
+                    </TableCell>
+                    <TableCell className="text-right">{formatCurrency(reqRate, currency)}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(reqAmount, currency)}</TableCell>
+                    {submissions.map((s) => {
+                      const item = bidItemsBySubmissionAndReq.get(s.id)?.get(r.id);
+                      if (!item) {
+                        return (
+                          <TableCell
+                            key={s.id}
+                            colSpan={5}
+                            className="border-l border-[var(--border)] text-center text-xs text-[var(--danger)]"
+                          >
+                            not quoted
+                          </TableCell>
+                        );
+                      }
+                      const quotedAmount = item.quoted_amount !== null ? Number(item.quoted_amount) : null;
+                      const diff = quotedAmount !== null && reqAmount !== null ? quotedAmount - reqAmount : null;
+                      const marginPct = diff !== null && reqAmount ? (diff / reqAmount) * 100 : null;
                       return (
-                        <TableCell key={s.id} className="text-right text-[var(--danger)]">
-                          not quoted
-                        </TableCell>
+                        <Fragment key={s.id}>
+                          <TableCell className="border-l border-[var(--border)] text-right">
+                            {formatCurrency(item.quoted_rate, currency)}
+                          </TableCell>
+                          <TableCell className={cn("text-right", item.is_deviation && "text-[var(--danger)]")}>
+                            {formatNumber(item.quoted_quantity)}
+                          </TableCell>
+                          <TableCell className="text-right">{formatCurrency(quotedAmount, currency)}</TableCell>
+                          <TableCell
+                            className={cn(
+                              "text-right",
+                              diff !== null && diff > 0 ? "text-[var(--danger)]" : diff !== null && diff < 0 ? "text-[var(--success)]" : ""
+                            )}
+                          >
+                            {diff !== null ? `${diff > 0 ? "+" : ""}${formatCurrency(diff, currency)}` : "—"}
+                          </TableCell>
+                          <TableCell
+                            className={cn(
+                              "text-right",
+                              marginPct !== null && marginPct > 0 ? "text-[var(--danger)]" : marginPct !== null && marginPct < 0 ? "text-[var(--success)]" : ""
+                            )}
+                          >
+                            {marginPct !== null ? `${marginPct > 0 ? "+" : ""}${marginPct.toFixed(1)}%` : "—"}
+                          </TableCell>
+                        </Fragment>
                       );
-                    }
-                    const tenderAmount = r.amount ? Number(r.amount) : null;
-                    const variancePct =
-                      tenderAmount && item.quoted_amount
-                        ? ((Number(item.quoted_amount) - tenderAmount) / tenderAmount) * 100
-                        : null;
-                    return (
-                      <TableCell key={s.id} className="text-right">
-                        <div>{formatCurrency(item.quoted_amount, currency)}</div>
-                        <div
-                          className={cn(
-                            "text-xs",
-                            item.is_deviation ? "text-[var(--danger)]" : "text-[var(--muted)]"
-                          )}
-                        >
-                          {variancePct !== null ? `${variancePct > 0 ? "+" : ""}${variancePct.toFixed(1)}%` : ""}
-                          {item.is_deviation ? " · deviation" : ""}
-                        </div>
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              ))}
+                    })}
+                  </TableRow>
+                );
+              })}
             </TableBody>
+            <tfoot>
+              <TableRow className="font-semibold">
+                <TableCell colSpan={3}>TOTAL</TableCell>
+                <TableCell />
+                <TableCell className="text-right">{formatCurrency(tenderGrandTotal, currency)}</TableCell>
+                {totals.map(({ submission, total, diff, marginPct }) => (
+                  <TableCell key={submission.id} colSpan={5} className="border-l border-[var(--border)] text-right">
+                    {formatCurrency(total, currency)}{" "}
+                    <span className={cn("text-xs font-normal", diff > 0 ? "text-[var(--danger)]" : "text-[var(--success)]")}>
+                      ({diff > 0 ? "+" : ""}
+                      {formatCurrency(diff, currency)}, {marginPct !== null ? `${marginPct.toFixed(1)}%` : "—"})
+                    </span>
+                  </TableCell>
+                ))}
+              </TableRow>
+            </tfoot>
           </Table>
         </CardContent>
       </Card>

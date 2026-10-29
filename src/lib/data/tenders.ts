@@ -34,6 +34,10 @@ export async function getTenderUploads(tenderId: string) {
   return data as unknown as TenderUploadWithSheets[];
 }
 
+/**
+ * The canonical, "real" BOQ — only committed requirements. Draft rows from an
+ * upload that hasn't been reviewed and saved yet are deliberately excluded.
+ */
 export async function getTenderSectionsWithRequirements(tenderId: string) {
   const supabase = await createSupabaseServerClient();
   const [{ data: sections, error: sErr }, { data: requirements, error: rErr }] = await Promise.all([
@@ -42,10 +46,36 @@ export async function getTenderSectionsWithRequirements(tenderId: string) {
       .from("tender_requirements")
       .select("*")
       .eq("tender_id", tenderId)
+      .eq("committed", true)
       .order("source_row", { ascending: true }),
   ]);
   if (sErr) throw sErr;
   if (rErr) throw rErr;
+  return { sections: sections ?? [], requirements: requirements ?? [] };
+}
+
+/** Draft (not-yet-saved) requirements + their sections for one specific upload, for the review screen. */
+export async function getDraftRequirementsForUpload(tenderId: string, uploadId: string) {
+  const supabase = await createSupabaseServerClient();
+  const [{ data: requirements, error: rErr }, { data: sheets, error: shErr }] = await Promise.all([
+    supabase
+      .from("tender_requirements")
+      .select("*")
+      .eq("tender_id", tenderId)
+      .eq("upload_id", uploadId)
+      .eq("committed", false)
+      .order("source_row", { ascending: true }),
+    supabase.from("workbook_sheets").select("id").eq("upload_id", uploadId),
+  ]);
+  if (rErr) throw rErr;
+  if (shErr) throw shErr;
+
+  const sheetIds = (sheets ?? []).map((s) => s.id);
+  const { data: sections, error: sErr } = sheetIds.length
+    ? await supabase.from("tender_sections").select("*").in("sheet_id", sheetIds).order("source_order")
+    : { data: [], error: null };
+  if (sErr) throw sErr;
+
   return { sections: sections ?? [], requirements: requirements ?? [] };
 }
 

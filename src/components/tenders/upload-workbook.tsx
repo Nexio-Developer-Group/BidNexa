@@ -71,10 +71,12 @@ export function UploadWorkbook({ tenderId }: { tenderId: string }) {
 
       setProgress(100);
       toast.success(
-        `Processed ${json.sheetsProcessed} sheet(s), ${json.requirementsCreated} item(s) extracted, ${json.issuesRaised} issue(s) flagged for review.`
+        `Processed ${json.sheetsProcessed} sheet(s), ${json.requirementsCreated} item(s) extracted. Review and save to the BOQ.`
       );
-      setTimeout(() => setUploading(false), 400);
-      router.refresh();
+      setTimeout(() => {
+        setUploading(false);
+        router.push(`/tenders/${tenderId}/review?uploadId=${json.uploadId}`);
+      }, 400);
     } catch (err) {
       toast.error((err as Error).message);
       setUploading(false);

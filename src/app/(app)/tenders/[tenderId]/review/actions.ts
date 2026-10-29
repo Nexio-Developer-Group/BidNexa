@@ -70,42 +70,56 @@ export async function correctRequirementField(
   });
 
   revalidatePath(`/tenders/${tenderId}/boq`);
+  revalidatePath(`/tenders/${tenderId}/review`);
   revalidatePath(`/tenders/${tenderId}`);
   return { ok: true };
 }
 
-export async function approveAllAndCompleteTender(tenderId: string) {
+/**
+ * The "Save to DB" button: commits every draft requirement from this specific
+ * upload into the real BOQ. Blocked while a blocking issue is still open on
+ * that upload — everything else (warnings/errors) can be saved with known
+ * issues still flagged for later follow-up.
+ */
+export async function saveRequirementsToDb(tenderId: string, uploadId: string) {
   const user = await requireCurrentUser();
   const supabase = await createSupabaseServerClient();
 
   const { data: openIssues } = await supabase
     .from("extraction_issues")
     .select("id, severity")
-    .in(
-      "upload_id",
-      (
-        await supabase.from("tender_uploads").select("id").eq("tender_id", tenderId)
-      ).data?.map((u) => u.id) ?? []
-    )
+    .eq("upload_id", uploadId)
     .eq("review_status", "open");
 
   const blocking = (openIssues ?? []).filter((i) => i.severity === "blocking");
   if (blocking.length > 0) {
-    return { error: `${blocking.length} blocking issue(s) must be resolved before approval.` };
+    return { error: `${blocking.length} blocking issue(s) must be resolved before saving.` };
   }
 
-  await supabase
+  const { data: committedRows, error } = await supabase
     .from("tender_requirements")
-    .update({ approved: true, approved_by: user.userId, approved_at: new Date().toISOString() })
-    .eq("tender_id", tenderId);
+    .update({ committed: true, approved: true, approved_by: user.userId, approved_at: new Date().toISOString() })
+    .eq("tender_id", tenderId)
+    .eq("upload_id", uploadId)
+    .eq("committed", false)
+    .select("id");
+
+  if (error) return { error: error.message };
 
   await supabase.from("tenders").update({ status: "active" }).eq("id", tenderId);
-  await supabase
-    .from("tender_uploads")
-    .update({ status: "approved" })
-    .eq("tender_id", tenderId)
-    .neq("status", "failed");
+  await supabase.from("tender_uploads").update({ status: "approved" }).eq("id", uploadId);
+
+  await supabase.from("audit_logs").insert({
+    organization_id: user.organizationId,
+    user_id: user.userId,
+    action: "requirements.saved_to_db",
+    entity_type: "tender_upload",
+    entity_id: uploadId,
+    after_data: { committedCount: committedRows?.length ?? 0 } as unknown as Json,
+  });
 
   revalidatePath(`/tenders/${tenderId}`);
-  return { ok: true };
+  revalidatePath(`/tenders/${tenderId}/boq`);
+  revalidatePath(`/tenders/${tenderId}/review`);
+  return { ok: true, committedCount: committedRows?.length ?? 0 };
 }

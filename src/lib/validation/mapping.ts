@@ -120,12 +120,15 @@ export function requirementToInsert(
   tenderId: string,
   sheetId: string,
   sectionId: string | null,
+  uploadId: string,
   m: MappedRequirement
 ): TablesInsert<"tender_requirements"> {
   return {
     tender_id: tenderId,
     sheet_id: sheetId,
     section_id: sectionId,
+    upload_id: uploadId,
+    committed: false,
     source_row: m.sourceRow,
     source_cell_refs: m.sourceCellRefs,
     row_type: m.rowType,
