@@ -38,7 +38,7 @@ export interface SheetInterpretationResult {
 }
 
 /**
- * Chunks a sheet's rows into bounded windows and runs each through Groq for
+ * Chunks a sheet's rows into bounded windows and runs each through Claude for
  * semantic interpretation, preserving row order and reporting any chunk that
  * could not be classified so the caller can flag it for review rather than
  * dropping it.

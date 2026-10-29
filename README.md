@@ -8,16 +8,16 @@ AI-assisted tender intelligence, BOQ management, and contractor bid comparison.
 
 - Next.js 16 (App Router, TypeScript), Tailwind CSS v4
 - Supabase (Postgres, Auth, Storage) with Row Level Security
-- Groq (via `groq-sdk`) for bounded, schema-validated workbook interpretation
+- Claude (via `@anthropic-ai/sdk`) for bounded, schema-validated workbook interpretation
 - ExcelJS for deterministic workbook parsing and report generation
 - Zod for strict validation of AI output
 
 ## Environment variables
 
-See `.env.example`. `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` are already set in
-`.env.local` for the provisioned project. `GROQ_API_KEY` is read from the container/host environment
-— it is deliberately not duplicated into a file. `GROQ_MODEL` defaults to `openai/gpt-oss-120b`; check
-`GET /v1/models` on your Groq account if that model is later renamed/retired.
+See `.env.example`. `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `ANTHROPIC_API_KEY`
+are already set in `.env.local` for this project (that file is gitignored — never commit it).
+`ANTHROPIC_MODEL` defaults to `claude-sonnet-5-5`; check the Anthropic docs if that model is later
+renamed/retired.
 
 ## Running locally
 
@@ -36,7 +36,7 @@ npm run build  # also runs the full TypeScript check
 `npm test` covers the highest-risk, hand-written logic: formula evaluation (precedence, SUM ranges,
 division-by-zero, unsupported functions), worksheet manifesting (hidden/empty sheets never silently
 dropped), merged-cell handling, and the "never fabricate a missing value" guarantee. It intentionally
-does **not** hit Groq or Supabase — that was instead verified with a live end-to-end run (sign-in →
+does **not** hit Claude or Supabase — that was instead verified with a live end-to-end run (sign-in →
 create tender → upload a BOQ with merged headers, a hidden notes sheet, an empty sheet, and formulas
 with and without cached results → AI interpretation → review → contractor quote upload with a
 quantity deviation and an unmatched item → comparison totals → Excel export), which produced correct
@@ -45,8 +45,8 @@ rather than inventing a result for an upstream formula with no cached value.
 
 ## Architecture notes
 
-- **Extraction pipeline** (`src/lib/excel`, `src/lib/groq`, `src/lib/validation`): deterministic
-  ExcelJS parsing → per-sheet chunked Groq interpretation (schema-validated, never trusted blindly) →
+- **Extraction pipeline** (`src/lib/excel`, `src/lib/claude`, `src/lib/validation`): deterministic
+  ExcelJS parsing → per-sheet chunked Claude interpretation (schema-validated, never trusted blindly) →
   structural/semantic/financial validation → **draft persistence**. Every worksheet gets a manifest
   row even if empty, hidden, or failed; nothing is marked "complete" while blocking issues are open.
 - **Draft/commit staging**: extraction never writes directly into the "real" BOQ or comparison. Both
@@ -58,7 +58,7 @@ rather than inventing a result for an upstream formula with no cached value.
   comparison dashboard, and reports all filter on `committed = true`, so nothing counts until a human
   has reviewed and saved it.
 - **Contractor sheets go through the same AI pipeline as the tender sheet** (`runContractorExtractionPipeline`
-  in `src/lib/validation/pipeline.ts`): deterministic parse → Groq interpretation → row mapping, then
+  in `src/lib/validation/pipeline.ts`): deterministic parse → Claude interpretation → row mapping, then
   matched against the tender's own *committed* requirements by item number first, description second
   (`src/lib/validation/bid-matching.ts`). Unmatched rows and quantity deviations are raised as
   `extraction_issues` exactly like the tender side, not silently dropped.
@@ -71,11 +71,10 @@ rather than inventing a result for an upstream formula with no cached value.
 
 ## Known gaps vs. the full spec
 
-- Groq enforces a per-account daily token cap; a sheet (tender or contractor) that fails interpretation
-  because of it is correctly flagged as an `extraction_issue` / `partially_processed` upload rather than
-  silently producing nothing — but it does mean a quota-exhausted account can't finish extraction until
-  the cap resets. Reprocessing (`/api/tenders/[id]/uploads/[uploadId]/reprocess`) picks it back up once
-  quota is available, reusing the stored file.
+- Anthropic enforces per-account rate limits; a sheet (tender or contractor) that fails interpretation
+  because of one is correctly flagged as an `extraction_issue` / `partially_processed` upload rather
+  than silently producing nothing. Reprocessing (`/api/tenders/[id]/uploads/[uploadId]/reprocess`)
+  picks it back up once the limit clears, reusing the stored file.
 - PDF export is not implemented — only Excel (BOQ export, contractor comparison). Excel covers the
   spec's reporting requirement; PDF would be an additive follow-up.
 - The automated adversarial-workbook test suite in the spec (16 named cases) is covered in spirit by

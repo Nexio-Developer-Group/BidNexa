@@ -1,10 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, TablesInsert } from "@/lib/types/database";
 import type { WorkbookManifest, SheetManifestEntry } from "@/lib/excel/types";
-import { interpretSheet } from "@/lib/groq/interpret";
+import { interpretSheet } from "@/lib/claude/interpret";
 import { mapInterpretedRow, requirementToInsert } from "./mapping";
 import { matchRequirement, type TenderRequirementForMatch, type MatchedBidRow } from "./bid-matching";
-import type { InterpretedRow } from "@/lib/groq/schema";
+import type { InterpretedRow } from "@/lib/claude/schema";
 
 type Client = SupabaseClient<Database>;
 
@@ -394,7 +394,7 @@ export async function clearSubmissionBidItems(supabase: Client, submissionId: st
 }
 
 /**
- * Same deterministic-parse + Groq-interpretation engine as the tender BOQ
+ * Same deterministic-parse + Claude-interpretation engine as the tender BOQ
  * pipeline, applied to a contractor's quotation workbook. Rows are matched
  * against the tender's already-committed requirements (by item number, then
  * description) and written as draft contractor_bid_items — nothing counts

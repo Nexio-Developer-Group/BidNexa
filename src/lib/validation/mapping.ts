@@ -1,4 +1,4 @@
-import type { InterpretedRow } from "@/lib/groq/schema";
+import type { InterpretedRow } from "@/lib/claude/schema";
 import type { SheetManifestEntry } from "@/lib/excel/types";
 import type { TablesInsert, Enums } from "@/lib/types/database";
 

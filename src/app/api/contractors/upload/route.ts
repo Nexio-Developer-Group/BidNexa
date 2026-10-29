@@ -12,7 +12,7 @@ const MAX_SIZE_BYTES = 25 * 1024 * 1024;
 
 /**
  * Parses a contractor's quotation workbook through the same deterministic +
- * Groq pipeline used for the tender's own BOQ, matches rows to the tender's
+ * Claude pipeline used for the tender's own BOQ, matches rows to the tender's
  * committed requirements, and writes draft (uncommitted) bid items. Nothing
  * here is visible in a comparison until it's reviewed and saved.
  */

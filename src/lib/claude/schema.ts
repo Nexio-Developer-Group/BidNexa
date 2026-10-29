@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Structured output contract for the Groq interpretation service.
+// Structured output contract for the Claude interpretation service.
 // Every field is either a direct copy of source data (with its coordinates)
 // or an explicit classification/confidence — nothing is allowed to silently
 // invent a value. Unknown/missing fields must be null, never fabricated.
