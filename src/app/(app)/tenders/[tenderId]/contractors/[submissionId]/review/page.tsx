@@ -34,9 +34,9 @@ export default async function ContractorBidReviewPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold sm:text-xl">
             Review quotation — {submission.contractors?.name} for {submission.tenders?.title}
           </h2>
           <p className="text-sm text-[var(--muted)]">
@@ -44,7 +44,9 @@ export default async function ContractorBidReviewPage({
           </p>
         </div>
         {!alreadySaved && bidItems.length > 0 && (
-          <SaveBidItemsButton tenderId={tenderId} submissionId={submissionId} uploadId={submission.upload_id} />
+          <div className="shrink-0">
+            <SaveBidItemsButton tenderId={tenderId} submissionId={submissionId} uploadId={submission.upload_id} />
+          </div>
         )}
       </div>
 

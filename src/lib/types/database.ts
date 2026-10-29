@@ -96,6 +96,30 @@ export type Database = {
         }
         Relationships: []
       }
+      contractor_chat_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          role: string
+          submission_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          role: string
+          submission_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          role?: string
+          submission_id?: string
+        }
+        Relationships: []
+      }
       contractor_submissions: {
         Row: {
           contractor_id: string

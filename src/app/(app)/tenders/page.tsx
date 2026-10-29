@@ -14,12 +14,12 @@ export default async function TendersPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">Tenders</h2>
-          <p className="text-sm text-[var(--muted)]">{tenders.length} tender(s) in {user.organizationName}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold sm:text-xl">Tenders</h2>
+          <p className="truncate text-sm text-[var(--muted)]">{tenders.length} tender(s) in {user.organizationName}</p>
         </div>
-        <Button asChild>
+        <Button asChild className="shrink-0">
           <Link href="/tenders/new">
             <PlusCircle className="h-4 w-4" /> Create Tender
           </Link>

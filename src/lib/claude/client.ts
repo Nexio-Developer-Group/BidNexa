@@ -5,7 +5,7 @@ import { TENDER_EXTRACTION_SYSTEM_PROMPT } from "./prompts";
 
 let client: Anthropic | null = null;
 
-function getClient(): Anthropic {
+export function getClient(): Anthropic {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is not configured on the server");
   }
@@ -15,7 +15,7 @@ function getClient(): Anthropic {
   return client;
 }
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
+export const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
 const MAX_RETRIES = 3;
 const TIMEOUT_MS = 45_000;
 

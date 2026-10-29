@@ -59,22 +59,22 @@ export default async function ComparisonsPage({ searchParams }: PageProps<"/comp
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">Bid Comparison — {selectedTender.title}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold sm:text-xl">Bid Comparison — {selectedTender.title}</h2>
           <p className="text-sm text-[var(--muted)]">
             {submissions.length} contractor submission(s) · {requirements.length} priced item(s) · tender total{" "}
             {formatCurrency(tenderGrandTotal, currency)}
           </p>
         </div>
-        <Button variant="outline" asChild>
+        <Button variant="outline" asChild className="shrink-0">
           <Link href={`/reports?tenderId=${selectedTender.id}`}>Export comparison</Link>
         </Button>
       </div>
 
-      <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(totals.length, 4) || 1}, minmax(0, 1fr))` }}>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {totals.map(({ submission, total, diff, marginPct, excludedCount, deviationCount }) => (
-          <Card key={submission.id}>
+          <Card key={submission.id} className="min-w-0">
             <CardContent className="p-4">
               <p className="text-sm font-medium">{(submission.contractors as unknown as { name: string })?.name}</p>
               <p className="mt-1 text-xl font-semibold">{formatCurrency(total, currency)}</p>

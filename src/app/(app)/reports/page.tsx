@@ -44,7 +44,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
       </Card>
 
       {selectedId && (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <ReportCard
             title="BOQ Export"
             description="Full bill of quantities with sections, items, quantities, rates and amounts."

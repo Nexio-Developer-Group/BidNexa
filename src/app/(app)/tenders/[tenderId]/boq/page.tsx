@@ -6,6 +6,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
 import { EditableCell } from "./editable-cell";
+import { isDisplayableBoqRow } from "@/lib/validation/boq-display";
 
 export default async function BoqPage({ params }: PageProps<"/tenders/[tenderId]/boq">) {
   const { tenderId } = await params;
@@ -14,7 +15,8 @@ export default async function BoqPage({ params }: PageProps<"/tenders/[tenderId]
   const tender = await getTender(tenderId);
   if (!tender || tender.organization_id !== user.organizationId) notFound();
 
-  const { sections, requirements } = await getTenderSectionsWithRequirements(tenderId);
+  const { sections, requirements: allRequirements } = await getTenderSectionsWithRequirements(tenderId);
+  const requirements = allRequirements.filter(isDisplayableBoqRow);
 
   const bySection = new Map<string | null, typeof requirements>();
   for (const r of requirements) {

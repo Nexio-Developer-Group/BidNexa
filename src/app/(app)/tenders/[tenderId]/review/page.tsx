@@ -59,15 +59,17 @@ export default async function ReviewPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">Review extracted data — {tender.title}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold sm:text-xl">Review extracted data — {tender.title}</h2>
           <p className="text-sm text-[var(--muted)]">
             {selectedUpload.original_filename} · review every row below, correct anything wrong, then save.
           </p>
         </div>
         {!alreadySaved && requirements.length > 0 && (
-          <SaveToDbButton tenderId={tenderId} uploadId={selectedUpload.id} />
+          <div className="shrink-0">
+            <SaveToDbButton tenderId={tenderId} uploadId={selectedUpload.id} />
+          </div>
         )}
       </div>
 

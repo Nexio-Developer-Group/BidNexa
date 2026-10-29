@@ -15,6 +15,7 @@ import { ReprocessUploadButton } from "@/components/tenders/reprocess-upload-but
 import { TenderStatusBadge, UploadStatusBadge, SeverityBadge } from "@/components/tenders/status-badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { formatDate, formatDateTime, formatNumber, formatCurrency } from "@/lib/utils";
+import { isDisplayableBoqRow } from "@/lib/validation/boq-display";
 
 const STUCK_UPLOAD_STATUSES = new Set(["failed", "partially_processed", "queued", "parsing", "ai_interpretation"]);
 
@@ -44,12 +45,14 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
     .filter((r) => r.row_type === "item" && r.amount !== null)
     .reduce((sum, r) => sum + Number(r.amount), 0);
 
+  const displayableRequirements = requirements.filter(isDisplayableBoqRow);
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-semibold">{tender.title}</h2>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="truncate text-lg font-semibold sm:text-xl">{tender.title}</h2>
             <TenderStatusBadge status={tender.status} />
           </div>
           <p className="text-sm text-[var(--muted)]">
@@ -57,7 +60,7 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
             {tender.client_name || "No client set"} · Deadline {formatDate(tender.deadline)}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           <Button variant="outline" asChild>
             <Link href={`/contractors?tenderId=${tenderId}`}>Manage contractors</Link>
           </Button>
@@ -67,7 +70,7 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Sections" value={sections.length} />
         <StatCard label="BOQ items" value={requirements.filter((r) => r.row_type === "item").length} />
         <StatCard label="Open issues" value={openIssues.length} tone={openIssues.length > 0 ? "warning" : "success"} />
@@ -78,12 +81,13 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
         <CardHeader>
           <CardTitle>Workbook upload</CardTitle>
           <CardDescription>
-            Upload the tender BOQ workbook. Every worksheet is parsed and interpreted before anything is marked
-            complete.
+            {uploads.length === 0
+              ? "Upload the tender BOQ workbook. Every worksheet is parsed and interpreted before anything is marked complete."
+              : "Only one BOQ workbook is allowed per tender. If extraction got stuck, use Reprocess below instead of re-uploading."}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <UploadWorkbook tenderId={tenderId} />
+          {uploads.length === 0 && <UploadWorkbook tenderId={tenderId} />}
 
           {uploads.length > 0 && (
             <Table>
@@ -128,8 +132,8 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
 
       {pendingReviewUploads.length > 0 && (
         <Card className="border-[var(--accent)]">
-          <CardContent className="flex items-center justify-between p-4">
-            <div>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div className="min-w-0">
               <p className="text-sm font-medium">
                 {pendingReviewUploads.length} upload(s) extracted but not yet saved to the BOQ.
               </p>
@@ -145,17 +149,65 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
         </Card>
       )}
 
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <CardTitle>Bill of Quantities</CardTitle>
+              <CardDescription>Extracted sections and items, grouped in source order.</CardDescription>
+            </div>
+            <Button variant="outline" size="sm" asChild className="shrink-0">
+              <Link href={`/tenders/${tenderId}/boq`}>Open full BOQ</Link>
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {displayableRequirements.length === 0 ? (
+            <div className="p-8 text-center text-sm text-[var(--muted)]">
+              {pendingReviewUploads.length > 0
+                ? "Items were extracted but haven't been saved yet — use Review & save above."
+                : "No BOQ items extracted yet. Upload a workbook above to get started."}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Unit</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="text-right">Rate</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {displayableRequirements.slice(0, 12).map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-mono text-xs">{r.item_number || "—"}</TableCell>
+                    <TableCell className="max-w-md truncate">{r.original_description || "(missing)"}</TableCell>
+                    <TableCell>{r.unit || "—"}</TableCell>
+                    <TableCell className="text-right">{formatNumber(r.quantity)}</TableCell>
+                    <TableCell className="text-right">{formatNumber(r.rate)}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(r.amount, tender.currency)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
       {openIssues.length > 0 && (
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <CardTitle>Extraction review required</CardTitle>
                 <CardDescription>
                   {openIssues.length} issue(s) need confirmation before this tender can be marked approved.
                 </CardDescription>
               </div>
-              <Button variant="outline" size="sm" asChild>
+              <Button variant="outline" size="sm" asChild className="shrink-0">
                 <Link href={`/tenders/${tenderId}/review`}>Open review screen</Link>
               </Button>
             </div>
@@ -186,54 +238,6 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
           </CardContent>
         </Card>
       )}
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Bill of Quantities</CardTitle>
-              <CardDescription>Extracted sections and items, grouped in source order.</CardDescription>
-            </div>
-            <Button variant="outline" size="sm" asChild>
-              <Link href={`/tenders/${tenderId}/boq`}>Open full BOQ</Link>
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {requirements.length === 0 ? (
-            <div className="p-8 text-center text-sm text-[var(--muted)]">
-              {pendingReviewUploads.length > 0
-                ? "Items were extracted but haven't been saved yet — use Review & save above."
-                : "No BOQ items extracted yet. Upload a workbook above to get started."}
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Unit</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Rate</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {requirements.slice(0, 12).map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="font-mono text-xs">{r.item_number || "—"}</TableCell>
-                    <TableCell className="max-w-md truncate">{r.original_description || "(missing)"}</TableCell>
-                    <TableCell>{r.unit || "—"}</TableCell>
-                    <TableCell className="text-right">{formatNumber(r.quantity)}</TableCell>
-                    <TableCell className="text-right">{formatNumber(r.rate)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(r.amount, tender.currency)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }

@@ -344,6 +344,21 @@ async function persistSectionsAndRequirements(
         reason: mapped.reason || "Row classification confidence was low; needs human confirmation.",
       });
     }
+    if (mapped.hasUnresolvedCellRefs) {
+      issuesRaised++;
+      await raiseIssue(supabase, {
+        uploadId,
+        sheetId,
+        requirementId: reqRow.id,
+        issueType: "cell_reference_unresolved",
+        severity: "warning",
+        sourceReference: `${sheet.sheetName}!row ${mapped.sourceRow}`,
+        originalValue: null,
+        proposedInterpretation: null,
+        reason:
+          "The AI pointed at a cell address for one or more fields that doesn't match a populated cell in the source workbook; the value was left blank rather than trusted.",
+      });
+    }
   }
 
   return { requirementsCreated, issuesRaised };
@@ -517,7 +532,23 @@ export async function runContractorExtractionPipeline(
           proposedInterpretation: null,
           reason: "Could not match this quoted row to a tender requirement by item number or description.",
         });
-      } else if (isDeviation) {
+      }
+      if (mapped.hasUnresolvedCellRefs) {
+        issuesRaised++;
+        await raiseIssue(supabase, {
+          uploadId,
+          sheetId: sheetRow.id,
+          requirementId: match?.id,
+          issueType: "cell_reference_unresolved",
+          severity: "warning",
+          sourceReference: `${sheet.sheetName}!row ${row.row_index}`,
+          originalValue: null,
+          proposedInterpretation: null,
+          reason:
+            "The AI pointed at a cell address for one or more fields that doesn't match a populated cell in the source workbook; the value was left blank rather than trusted.",
+        });
+      }
+      if (match !== null && isDeviation) {
         issuesRaised++;
         await raiseIssue(supabase, {
           uploadId,

@@ -55,23 +55,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Unsupported MIME type: ${file.type}` }, { status: 400 });
   }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  const fileHash = hashBuffer(buffer);
-
-  const { data: existing } = await supabase
+  // Only one BOQ workbook per tender. A stuck/failed upload is retried via
+  // the reprocess endpoint (reuses the stored file), not by uploading again.
+  const { data: anyExisting } = await supabase
     .from("tender_uploads")
     .select("id, status")
     .eq("tender_id", tenderId)
-    .eq("file_hash", fileHash)
+    .limit(1)
     .maybeSingle();
 
-  if (existing) {
+  if (anyExisting) {
     return NextResponse.json(
-      { error: "This exact file has already been uploaded for this tender.", uploadId: existing.id, status: existing.status },
+      {
+        error: "A BOQ workbook has already been uploaded for this tender. Only one BOQ per tender is allowed — use reprocess to retry extraction on the existing upload.",
+        uploadId: anyExisting.id,
+        status: anyExisting.status,
+      },
       { status: 409 }
     );
   }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const fileHash = hashBuffer(buffer);
 
   let manifest;
   try {

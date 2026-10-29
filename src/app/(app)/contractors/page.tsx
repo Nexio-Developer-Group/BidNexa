@@ -34,12 +34,14 @@ export default async function ContractorsPage({ searchParams }: PageProps<"/cont
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">Contractors</h2>
-          <p className="text-sm text-[var(--muted)]">{contractors.length} contractor(s) in {user.organizationName}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold sm:text-xl">Contractors</h2>
+          <p className="truncate text-sm text-[var(--muted)]">{contractors.length} contractor(s) in {user.organizationName}</p>
         </div>
-        <AddContractorDialog />
+        <div className="shrink-0">
+          <AddContractorDialog />
+        </div>
       </div>
 
       {selectedTender && (
@@ -77,6 +79,8 @@ export default async function ContractorsPage({ searchParams }: PageProps<"/cont
                           tenderId={selectedTender.id}
                           contractorId={c.id}
                           hasSubmission={Boolean(submission)}
+                          submissionId={submission?.id}
+                          hasUpload={Boolean(submission?.upload_id)}
                         />
                       </TableCell>
                     </TableRow>

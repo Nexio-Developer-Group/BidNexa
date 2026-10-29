@@ -13,12 +13,12 @@ export default async function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold">Welcome back, {user.fullName?.split(" ")[0] || "there"}</h2>
-          <p className="text-sm text-[var(--muted)]">{user.organizationName}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold sm:text-xl">Welcome back, {user.fullName?.split(" ")[0] || "there"}</h2>
+          <p className="truncate text-sm text-[var(--muted)]">{user.organizationName}</p>
         </div>
-        <Button asChild>
+        <Button asChild className="shrink-0">
           <Link href="/tenders/new">
             <PlusCircle className="h-4 w-4" /> Create Tender
           </Link>

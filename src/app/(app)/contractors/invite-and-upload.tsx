@@ -2,8 +2,9 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { toast } from "sonner";
-import { UploadCloud } from "lucide-react";
+import { UploadCloud, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { inviteContractorToTender } from "./actions";
 
@@ -11,10 +12,15 @@ export function InviteAndUpload({
   tenderId,
   contractorId,
   hasSubmission,
+  submissionId,
+  hasUpload,
 }: {
   tenderId: string;
   contractorId: string;
   hasSubmission: boolean;
+  submissionId?: string;
+  /** Once a quotation has been uploaded, only one is kept — the review/chat flow replaces re-upload. */
+  hasUpload?: boolean;
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -57,6 +63,16 @@ export function InviteAndUpload({
     return (
       <Button size="sm" variant="outline" disabled={busy} onClick={handleInvite}>
         Invite
+      </Button>
+    );
+  }
+
+  if (hasUpload && submissionId) {
+    return (
+      <Button size="sm" variant="outline" asChild>
+        <Link href={`/tenders/${tenderId}/contractors/${submissionId}/chat`}>
+          <MessageSquare className="h-3.5 w-3.5" /> Chat
+        </Link>
       </Button>
     );
   }

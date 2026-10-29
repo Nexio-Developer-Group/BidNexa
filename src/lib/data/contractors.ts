@@ -89,3 +89,36 @@ export async function getDraftBidItems(submissionId: string, uploadId: string) {
   if (error) throw error;
   return (data ?? []) as unknown as DraftBidItem[];
 }
+
+/** Committed (saved) bid items for a submission, with the matched requirement — the chat's comparison context. */
+export async function getCommittedBidItemsForSubmission(submissionId: string) {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("contractor_bid_items")
+    .select("*, tender_requirements(item_number, original_description, unit, quantity, rate, amount)")
+    .eq("submission_id", submissionId)
+    .eq("committed", true)
+    .order("created_at");
+  if (error) throw error;
+  return (data ?? []) as unknown as (Tables<"contractor_bid_items"> & {
+    tender_requirements: {
+      item_number: string | null;
+      original_description: string;
+      unit: string | null;
+      quantity: number | null;
+      rate: number | null;
+      amount: number | null;
+    } | null;
+  })[];
+}
+
+export async function getChatMessages(submissionId: string) {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("contractor_chat_messages")
+    .select("*")
+    .eq("submission_id", submissionId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}

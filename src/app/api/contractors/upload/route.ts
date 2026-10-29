@@ -42,6 +42,25 @@ export async function POST(request: NextRequest) {
     .single();
   if (!tender) return NextResponse.json({ error: "Tender not found" }, { status: 404 });
 
+  // Only one quotation is kept per contractor per tender. Once uploaded, use
+  // the quotation chat to ask questions or make explicit corrections instead
+  // of re-uploading.
+  const { data: existingSubmission } = await supabase
+    .from("contractor_submissions")
+    .select("id, upload_id")
+    .eq("tender_id", tenderId)
+    .eq("contractor_id", contractorId)
+    .maybeSingle();
+  if (existingSubmission?.upload_id) {
+    return NextResponse.json(
+      {
+        error: "A quotation has already been uploaded for this contractor. Use the chat to ask questions or request changes.",
+        submissionId: existingSubmission.id,
+      },
+      { status: 409 }
+    );
+  }
+
   const buffer = Buffer.from(await file.arrayBuffer());
   const fileHash = hashBuffer(buffer);
 

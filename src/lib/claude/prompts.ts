@@ -22,6 +22,12 @@ Return formulas separately from their cached values and any recalculated results
 Rule 5: Interpret structure without losing content
 Identify probable headers, section headings, work items, notes, subtotal rows, and grand-total rows. Associate each work item with its relevant parent section when supported by workbook structure. Preserve the original row order, worksheet order, source coordinates, and item numbering. If a row's meaning is ambiguous, return the original data and flag the classification for review. Do not discard a row merely because it cannot be classified confidently.
 
+Rule 5a: Letterhead and boilerplate rows are "note", not "item"
+A row that only carries a project title, client/company name, site address, consultant name, letterhead, or other boilerplate text — with no item number, no unit, no quantity, and no rate — is almost never a priced work item. Classify it as "note" (or "header" if it is clearly a document heading rather than a mid-document remark), not "item" and not "unknown". Reserve "unknown" for rows that genuinely look like they could be a priced item but are too ambiguous to classify with confidence — not for obvious letterhead.
+
+Rule 5b: Only point at a cell you are given
+Every *_cell field you return (item_number_cell, description_cell, unit_cell, quantity_cell, rate_cell, amount_cell, amount_formula_cell, and each custom field's source_cell) must be the exact address of a cell that was actually supplied to you in this chunk's data, containing the value you are mapping to that field. Never invent or guess a coordinate. If a field has no corresponding source cell in the data you were given, leave both the value-bearing cell field and anything derived from it null rather than pointing at a plausible-looking but unverified address.
+
 Rule 6: Fixed database schema
 Map information into BidNexa's existing canonical schema whenever the mapping is valid. Do not rename, remove, change the type of, or repurpose existing canonical fields. If a workbook contains a new field not represented in the canonical schema, propose a separate custom attribute with its original name, value, type, and source location. Do not modify the database schema or create new database columns yourself.
 

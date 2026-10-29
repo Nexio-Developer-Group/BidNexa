@@ -5,6 +5,7 @@ import { LogOut, Search } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MobileSidebar } from "@/components/layout/sidebar";
 
 const TITLES: Record<string, string> = {
   "/dashboard": "Overview",
@@ -23,7 +24,15 @@ function titleFor(pathname: string) {
   return segment ? TITLES[segment] : "BidNexa";
 }
 
-export function Topbar() {
+export function Topbar({
+  organizationName,
+  userName,
+  userEmail,
+}: {
+  organizationName: string;
+  userName: string;
+  userEmail: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const title = titleFor(pathname || "");
@@ -36,12 +45,15 @@ export function Topbar() {
   }
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6">
-      <h1 className="text-lg font-semibold text-[var(--foreground)]">{title}</h1>
-      <div className="flex items-center gap-3">
-        <div className="relative hidden sm:block">
+    <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-3 sm:px-6">
+      <div className="flex min-w-0 items-center gap-2">
+        <MobileSidebar organizationName={organizationName} userName={userName} userEmail={userEmail} />
+        <h1 className="truncate text-base font-semibold text-[var(--foreground)] sm:text-lg">{title}</h1>
+      </div>
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+        <div className="relative hidden md:block">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-[var(--muted)]" />
-          <Input placeholder="Search tenders…" className="w-64 pl-8" />
+          <Input placeholder="Search tenders…" className="w-48 pl-8 lg:w-64" />
         </div>
         <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign out">
           <LogOut className="h-4 w-4" />

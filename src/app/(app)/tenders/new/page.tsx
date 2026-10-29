@@ -71,7 +71,7 @@ export default function NewTenderPage() {
               <Label htmlFor="title">Tender name *</Label>
               <Input id="title" required value={form.title} onChange={(e) => update("title", e.target.value)} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="referenceNumber">Tender reference</Label>
                 <Input
@@ -85,7 +85,7 @@ export default function NewTenderPage() {
                 <Input id="clientName" value={form.clientName} onChange={(e) => update("clientName", e.target.value)} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="location">Location</Label>
                 <Input id="location" value={form.location} onChange={(e) => update("location", e.target.value)} />
