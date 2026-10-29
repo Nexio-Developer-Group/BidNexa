@@ -53,7 +53,11 @@ export const ChunkInterpretationSchema = z.object({
   rows: z.array(InterpretedRowSchema),
   unresolved_row_indexes: z.array(z.number().int()).default([]),
   notes: z.string().nullable().default(null),
-  complete: z.boolean(),
+  // Advisory only: some models omit this field even on an otherwise valid,
+  // fully-classified response. Defaulting to true (rather than requiring it)
+  // avoids rejecting an entire chunk over missing metadata — the operative
+  // incompleteness signal is unresolved_row_indexes, not this flag.
+  complete: z.boolean().default(true),
 });
 
 export type ChunkInterpretation = z.infer<typeof ChunkInterpretationSchema>;
