@@ -11,9 +11,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { UploadWorkbook } from "@/components/tenders/upload-workbook";
+import { ReprocessUploadButton } from "@/components/tenders/reprocess-upload-button";
 import { TenderStatusBadge, UploadStatusBadge, SeverityBadge } from "@/components/tenders/status-badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { formatDate, formatDateTime, formatNumber, formatCurrency } from "@/lib/utils";
+
+const STUCK_UPLOAD_STATUSES = new Set(["failed", "partially_processed", "queued", "parsing", "ai_interpretation"]);
 
 export default async function TenderDetailPage({ params }: PageProps<"/tenders/[tenderId]">) {
   const { tenderId } = await params;
@@ -89,6 +92,7 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
                   <TableHead>Uploaded</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Worksheets</TableHead>
+                  <TableHead>Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -107,6 +111,11 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
                           </Badge>
                         ))}
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      {STUCK_UPLOAD_STATUSES.has(u.status) && (
+                        <ReprocessUploadButton tenderId={tenderId} uploadId={u.id} />
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

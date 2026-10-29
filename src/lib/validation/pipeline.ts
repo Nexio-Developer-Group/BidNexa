@@ -18,6 +18,24 @@ export interface PipelineResult {
 }
 
 /**
+ * Wipes everything a previous (partial/failed) run of this upload produced —
+ * requirements and sections tied to its sheets, its issues, and the sheets
+ * themselves (which cascades source_cells) — so a reprocess starts clean
+ * instead of layering duplicate rows on top of a stuck attempt.
+ */
+export async function clearUploadExtractionData(supabase: Client, uploadId: string): Promise<void> {
+  const { data: sheets } = await supabase.from("workbook_sheets").select("id").eq("upload_id", uploadId);
+  const sheetIds = (sheets ?? []).map((s) => s.id);
+
+  if (sheetIds.length > 0) {
+    await supabase.from("tender_requirements").delete().in("sheet_id", sheetIds);
+    await supabase.from("tender_sections").delete().in("sheet_id", sheetIds);
+  }
+  await supabase.from("extraction_issues").delete().eq("upload_id", uploadId);
+  await supabase.from("workbook_sheets").delete().eq("upload_id", uploadId);
+}
+
+/**
  * Runs the full extraction pipeline for an already-uploaded workbook:
  * manifest persistence -> AI interpretation per sheet -> structural/semantic/
  * financial validation -> canonical persistence. Every stage records its own

@@ -1,29 +1,65 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { UploadCloud, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 
+// Rotates through these while the server is parsing + running AI interpretation.
+// Purely cosmetic (we don't have granular server progress on a single request),
+// but loosely follows the real pipeline order so it doesn't feel made up.
+const PROCESSING_MESSAGES = [
+  "Uploading workbook…",
+  "Opening every worksheet…",
+  "Reading rows, columns & formulas…",
+  "Spotting sections and headings…",
+  "Teaching the AI your BOQ…",
+  "Classifying items, subtotals & notes…",
+  "Cross-checking quantities and rates…",
+  "Double-checking formulas, just in case…",
+  "Flagging anything that needs your eyes…",
+  "Plating up the results…",
+];
+
 export function UploadWorkbook({ tenderId }: { tenderId: string }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [progressLabel, setProgressLabel] = useState("");
+  const [messageIndex, setMessageIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (!uploading) return;
+
+    const messageTimer = setInterval(() => {
+      setMessageIndex((i) => Math.min(i + 1, PROCESSING_MESSAGES.length - 1));
+    }, 2600);
+
+    // Crawls toward 92% and holds — the final jump to 100% happens on completion,
+    // so it never falsely claims "done" while the request is still in flight.
+    const progressTimer = setInterval(() => {
+      setProgress((p) => (p >= 92 ? 92 : p + (92 - p) * 0.12 + 1));
+    }, 400);
+
+    return () => {
+      clearInterval(messageTimer);
+      clearInterval(progressTimer);
+    };
+  }, [uploading]);
 
   async function handleFile(file: File) {
     setUploading(true);
-    setProgressLabel("Uploading workbook…");
+    setMessageIndex(0);
+    setProgress(0);
 
     const formData = new FormData();
     formData.append("tenderId", tenderId);
     formData.append("file", file);
 
     try {
-      setProgressLabel("Parsing worksheets and running AI interpretation — this can take a minute…");
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const json = await res.json();
 
@@ -33,10 +69,11 @@ export function UploadWorkbook({ tenderId }: { tenderId: string }) {
         return;
       }
 
+      setProgress(100);
       toast.success(
         `Processed ${json.sheetsProcessed} sheet(s), ${json.requirementsCreated} item(s) extracted, ${json.issuesRaised} issue(s) flagged for review.`
       );
-      setUploading(false);
+      setTimeout(() => setUploading(false), 400);
       router.refresh();
     } catch (err) {
       toast.error((err as Error).message);
@@ -64,8 +101,11 @@ export function UploadWorkbook({ tenderId }: { tenderId: string }) {
       {uploading ? (
         <>
           <FileSpreadsheet className="h-8 w-8 animate-pulse text-[var(--teal-500)]" />
-          <p className="text-sm font-medium">{progressLabel}</p>
-          <Progress value={60} className="w-64" />
+          <p key={messageIndex} className="text-sm font-medium text-[var(--foreground)] transition-opacity duration-300">
+            {PROCESSING_MESSAGES[messageIndex]}
+          </p>
+          <Progress value={progress} className="w-64" />
+          <p className="text-xs text-[var(--muted)]">This can take a minute for larger workbooks.</p>
         </>
       ) : (
         <>
