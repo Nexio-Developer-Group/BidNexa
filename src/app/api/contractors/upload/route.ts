@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireCurrentUser } from "@/lib/org";
 import { parseWorkbook, hashBuffer } from "@/lib/excel/parser";
-import { runContractorExtractionPipeline } from "@/lib/validation/pipeline";
+import { runContractorExtractionPipeline, clearSubmissionBidItems } from "@/lib/validation/pipeline";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
   const tenderId = formData.get("tenderId");
   const contractorId = formData.get("contractorId");
   const file = formData.get("file");
+  const replace = formData.get("replace") === "true";
 
   if (typeof tenderId !== "string" || typeof contractorId !== "string") {
     return NextResponse.json({ error: "tenderId and contractorId are required" }, { status: 400 });
@@ -42,19 +43,20 @@ export async function POST(request: NextRequest) {
     .single();
   if (!tender) return NextResponse.json({ error: "Tender not found" }, { status: 404 });
 
-  // Only one quotation is kept per contractor per tender. Once uploaded, use
-  // the quotation chat to ask questions or make explicit corrections instead
-  // of re-uploading.
+  // Only one quotation is kept per contractor per tender. Once uploaded, a
+  // second call must explicitly ask to replace it (the dedicated re-upload
+  // screen always does) — otherwise it's rejected so nothing is overwritten
+  // by accident.
   const { data: existingSubmission } = await supabase
     .from("contractor_submissions")
     .select("id, upload_id")
     .eq("tender_id", tenderId)
     .eq("contractor_id", contractorId)
     .maybeSingle();
-  if (existingSubmission?.upload_id) {
+  if (existingSubmission?.upload_id && !replace) {
     return NextResponse.json(
       {
-        error: "A quotation has already been uploaded for this contractor. Use the chat to ask questions or request changes.",
+        error: "A quotation has already been uploaded for this contractor. Re-upload to replace it, or use the chat to ask questions.",
         submissionId: existingSubmission.id,
       },
       { status: 409 }
@@ -72,6 +74,13 @@ export async function POST(request: NextRequest) {
   }
   if (manifest.sheetCount === 0) {
     return NextResponse.json({ error: "Workbook contains no worksheets." }, { status: 422 });
+  }
+
+  // Replacing an existing quotation: wipe its old bid items, issues, and
+  // sheet manifest first so the new upload starts clean instead of layering
+  // on top of stale draft/committed rows.
+  if (existingSubmission?.upload_id) {
+    await clearSubmissionBidItems(supabase, existingSubmission.id, existingSubmission.upload_id);
   }
 
   const uploadId = randomUUID();
