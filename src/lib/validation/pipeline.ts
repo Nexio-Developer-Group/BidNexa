@@ -94,6 +94,16 @@ export async function runExtractionPipeline(
 
     if (sheetInsertError || !sheetRow) {
       sheetsFailed++;
+      totalIssues++;
+      await raiseIssue(supabase, {
+        uploadId,
+        issueType: "sheet_manifest_insert_failed",
+        severity: "blocking",
+        sourceReference: sheet.sheetName,
+        originalValue: null,
+        proposedInterpretation: null,
+        reason: sheetInsertError?.message || "Failed to record this worksheet's manifest row (no row returned).",
+      });
       continue;
     }
 
@@ -452,6 +462,16 @@ export async function runContractorExtractionPipeline(
     const { sheetRow, sheetInsertError } = await persistSheetManifest(supabase, uploadId, sheet);
     if (sheetInsertError || !sheetRow) {
       sheetsFailed++;
+      issuesRaised++;
+      await raiseIssue(supabase, {
+        uploadId,
+        issueType: "sheet_manifest_insert_failed",
+        severity: "blocking",
+        sourceReference: sheet.sheetName,
+        originalValue: null,
+        proposedInterpretation: null,
+        reason: sheetInsertError?.message || "Failed to record this worksheet's manifest row (no row returned).",
+      });
       continue;
     }
     if (sheet.processingStatus === "skipped_empty") {

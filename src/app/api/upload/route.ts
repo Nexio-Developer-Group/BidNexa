@@ -61,12 +61,22 @@ export async function POST(request: NextRequest) {
   // problem (e.g. it fails to parse every time), explicitly replaced — the
   // dedicated "Replace BOQ" flow always sends replace=true; a plain upload
   // call without it is rejected so nothing is overwritten by accident.
-  const { data: anyExisting } = await supabase
-    .from("tender_uploads")
-    .select("id, status")
+  // Contractor quotation uploads share this same table (same tender_id) but
+  // aren't the tender's own BOQ, so they're excluded from this check.
+  const { data: contractorUploadRows } = await supabase
+    .from("contractor_submissions")
+    .select("upload_id")
     .eq("tender_id", tenderId)
-    .limit(1)
-    .maybeSingle();
+    .not("upload_id", "is", null);
+  const contractorUploadIds = (contractorUploadRows ?? [])
+    .map((r) => r.upload_id)
+    .filter((id): id is string => id !== null);
+
+  let existingQuery = supabase.from("tender_uploads").select("id, status").eq("tender_id", tenderId);
+  if (contractorUploadIds.length > 0) {
+    existingQuery = existingQuery.not("id", "in", `(${contractorUploadIds.join(",")})`);
+  }
+  const { data: anyExisting } = await existingQuery.limit(1).maybeSingle();
 
   if (anyExisting && !replace) {
     return NextResponse.json(

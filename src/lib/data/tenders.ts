@@ -23,13 +23,36 @@ export async function getTender(tenderId: string) {
   return data;
 }
 
+/**
+ * Uploads that are the tender's own BOQ — excludes contractor quotation
+ * uploads, which land in the same tender_uploads table (same tender_id) but
+ * are tracked separately via contractor_submissions.upload_id. Mixing the
+ * two in this list previously let a contractor's quotation upload show up
+ * (and be reprocessed) as if it were the tender's own BOQ.
+ */
 export async function getTenderUploads(tenderId: string) {
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
+
+  const { data: contractorUploadRows } = await supabase
+    .from("contractor_submissions")
+    .select("upload_id")
+    .eq("tender_id", tenderId)
+    .not("upload_id", "is", null);
+  const contractorUploadIds = (contractorUploadRows ?? [])
+    .map((r) => r.upload_id)
+    .filter((id): id is string => id !== null);
+
+  let query = supabase
     .from("tender_uploads")
     .select("*, workbook_sheets(*)")
     .eq("tender_id", tenderId)
     .order("created_at", { ascending: false });
+
+  if (contractorUploadIds.length > 0) {
+    query = query.not("id", "in", `(${contractorUploadIds.join(",")})`);
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
   return data as unknown as TenderUploadWithSheets[];
 }

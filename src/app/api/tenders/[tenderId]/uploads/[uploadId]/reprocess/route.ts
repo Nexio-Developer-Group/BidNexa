@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireCurrentUser } from "@/lib/org";
 import { parseWorkbook } from "@/lib/excel/parser";
-import { runExtractionPipeline, clearUploadExtractionData } from "@/lib/validation/pipeline";
+import {
+  runExtractionPipeline,
+  clearUploadExtractionData,
+  runContractorExtractionPipeline,
+  clearSubmissionBidItems,
+} from "@/lib/validation/pipeline";
 import type { Json } from "@/lib/types/database";
 
 export const runtime = "nodejs";
@@ -13,6 +18,12 @@ export const maxDuration = 300;
  * reusing the workbook already in storage (no re-upload needed). Clears
  * whatever that attempt partially produced first, so reprocessing is clean
  * rather than additive.
+ *
+ * tender_uploads is shared by both the tender's own BOQ and every
+ * contractor's quotation upload (same tender_id); this route has to detect
+ * which one it's looking at via contractor_submissions.upload_id and run
+ * the matching pipeline, or a contractor's quotation reprocessed here would
+ * silently go through the tender's own BOQ pipeline instead.
  */
 export async function POST(
   _request: Request,
@@ -33,10 +44,16 @@ export async function POST(
   }
   if (upload.status === "approved") {
     return NextResponse.json(
-      { error: "This upload has already been saved to the BOQ and can't be reprocessed — it would wipe saved data." },
+      { error: "This upload has already been saved and can't be reprocessed — it would wipe saved data." },
       { status: 409 }
     );
   }
+
+  const { data: submission } = await supabase
+    .from("contractor_submissions")
+    .select("id")
+    .eq("upload_id", uploadId)
+    .maybeSingle();
 
   const { data: fileBlob, error: downloadError } = await supabase.storage
     .from("tender-workbooks")
@@ -62,16 +79,23 @@ export async function POST(
   }
 
   await supabase.from("tender_uploads").update({ status: "queued" }).eq("id", uploadId);
-  await clearUploadExtractionData(supabase, uploadId);
 
-  const result = await runExtractionPipeline(supabase, { uploadId, tenderId, manifest });
+  const result = submission
+    ? await (async () => {
+        await clearSubmissionBidItems(supabase, submission.id, uploadId);
+        return runContractorExtractionPipeline(supabase, { uploadId, tenderId, submissionId: submission.id, manifest });
+      })()
+    : await (async () => {
+        await clearUploadExtractionData(supabase, uploadId);
+        return runExtractionPipeline(supabase, { uploadId, tenderId, manifest });
+      })();
 
   await supabase.from("audit_logs").insert({
     organization_id: user.organizationId,
     user_id: user.userId,
     action: "upload.reprocessed",
-    entity_type: "tender_upload",
-    entity_id: uploadId,
+    entity_type: submission ? "contractor_submission" : "tender_upload",
+    entity_id: submission?.id ?? uploadId,
     after_data: result as unknown as Json,
   });
 
