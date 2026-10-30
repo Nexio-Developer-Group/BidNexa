@@ -4,6 +4,8 @@ import { listTenders } from "@/lib/data/tenders";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { AddContractorDialog } from "./add-contractor-dialog";
+import { EditContractorDialog } from "./edit-contractor-dialog";
+import { RemoveFromTenderButton } from "./remove-from-tender-button";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { InviteAndUpload } from "./invite-and-upload";
 import { formatCurrency } from "@/lib/utils";
@@ -75,13 +77,22 @@ export default async function ContractorsPage({ searchParams }: PageProps<"/cont
                           : "—"}
                       </TableCell>
                       <TableCell>
-                        <InviteAndUpload
-                          tenderId={selectedTender.id}
-                          contractorId={c.id}
-                          hasSubmission={Boolean(submission)}
-                          submissionId={submission?.id}
-                          hasUpload={Boolean(submission?.upload_id)}
-                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <InviteAndUpload
+                            tenderId={selectedTender.id}
+                            contractorId={c.id}
+                            hasSubmission={Boolean(submission)}
+                            submissionId={submission?.id}
+                            hasUpload={Boolean(submission?.upload_id)}
+                          />
+                          {submission && (
+                            <RemoveFromTenderButton
+                              tenderId={selectedTender.id}
+                              contractorId={c.id}
+                              contractorName={c.name}
+                            />
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -107,6 +118,7 @@ export default async function ContractorsPage({ searchParams }: PageProps<"/cont
                   <TableHead>Contact</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Phone</TableHead>
+                  <TableHead>Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -116,6 +128,15 @@ export default async function ContractorsPage({ searchParams }: PageProps<"/cont
                     <TableCell>{c.contact_name || "—"}</TableCell>
                     <TableCell>{c.contact_email || "—"}</TableCell>
                     <TableCell>{c.contact_phone || "—"}</TableCell>
+                    <TableCell>
+                      <EditContractorDialog
+                        contractorId={c.id}
+                        initialName={c.name}
+                        initialContactName={c.contact_name}
+                        initialContactEmail={c.contact_email}
+                        initialContactPhone={c.contact_phone}
+                      />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

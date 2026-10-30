@@ -12,8 +12,9 @@ export interface CurrentUserContext {
 
 /**
  * Resolves the signed-in user's organization context for server components
- * and route handlers. Redirects to /login if unauthenticated, or /signup if
- * the user has no organization yet (should not normally happen post-signup).
+ * and route handlers. Redirects to /login if unauthenticated, or if the
+ * user has no organization yet — there's no public signup; accounts and
+ * their organization are provisioned by an admin.
  */
 export async function requireCurrentUser(): Promise<CurrentUserContext> {
   const supabase = await createSupabaseServerClient();
@@ -31,7 +32,7 @@ export async function requireCurrentUser(): Promise<CurrentUserContext> {
     .maybeSingle();
 
   if (memberError || !membership) {
-    redirect("/signup");
+    redirect("/login");
   }
 
   const { data: profile } = await supabase

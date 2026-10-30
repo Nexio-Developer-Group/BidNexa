@@ -2,7 +2,6 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { toast } from "sonner";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -74,10 +73,7 @@ function LoginForm() {
           </Button>
         </form>
         <p className="mt-4 text-center text-sm text-[var(--muted)]">
-          No account?{" "}
-          <Link href="/signup" className="font-medium text-[var(--primary)] hover:underline">
-            Create one
-          </Link>
+          Accounts are set up by your organization&apos;s admin.
         </p>
       </CardContent>
     </Card>
