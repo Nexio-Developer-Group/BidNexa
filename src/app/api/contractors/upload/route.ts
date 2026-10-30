@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireCurrentUser } from "@/lib/org";
 import { parseWorkbook, hashBuffer } from "@/lib/excel/parser";
+import {
+  ALLOWED_WORKBOOK_EXTENSIONS,
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_LABEL,
+  WORKBOOK_BUCKET,
+  workbookExtension,
+} from "@/lib/upload-limits";
 import { runContractorExtractionPipeline, clearSubmissionBidItems } from "@/lib/validation/pipeline";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-
-const MAX_SIZE_BYTES = 25 * 1024 * 1024;
 
 /**
  * Parses a contractor's quotation workbook through the same deterministic +
@@ -20,20 +24,24 @@ export async function POST(request: NextRequest) {
   const user = await requireCurrentUser();
   const supabase = await createSupabaseServerClient();
 
-  const formData = await request.formData();
-  const tenderId = formData.get("tenderId");
-  const contractorId = formData.get("contractorId");
-  const file = formData.get("file");
-  const replace = formData.get("replace") === "true";
+  // File is already in Storage (uploaded directly by the browser, see
+  // /api/upload/sign) so it never hits the serverless body-size cap.
+  const body = await request.json().catch(() => null);
+  const { tenderId, contractorId, uploadId, storagePath, filename } = body ?? {};
+  const replace = body?.replace === true;
 
   if (typeof tenderId !== "string" || typeof contractorId !== "string") {
     return NextResponse.json({ error: "tenderId and contractorId are required" }, { status: 400 });
   }
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "file is required" }, { status: 400 });
-  }
-  if (file.size === 0 || file.size > MAX_SIZE_BYTES) {
-    return NextResponse.json({ error: "File is empty or exceeds the 25MB limit" }, { status: 400 });
+  if (
+    typeof uploadId !== "string" ||
+    typeof storagePath !== "string" ||
+    typeof filename !== "string" ||
+    !uploadId ||
+    !storagePath ||
+    !filename
+  ) {
+    return NextResponse.json({ error: "uploadId, storagePath and filename are required" }, { status: 400 });
   }
 
   const { data: tender } = await supabase
@@ -43,10 +51,27 @@ export async function POST(request: NextRequest) {
     .single();
   if (!tender) return NextResponse.json({ error: "Tender not found" }, { status: 404 });
 
-  // Only one quotation is kept per contractor per tender. Once uploaded, a
-  // second call must explicitly ask to replace it (the dedicated re-upload
-  // screen always does) — otherwise it's rejected so nothing is overwritten
-  // by accident.
+  if (!storagePath.startsWith(`${tender.organization_id}/${tenderId}/contractor-${uploadId}/`)) {
+    return NextResponse.json({ error: "Invalid storage path" }, { status: 400 });
+  }
+
+  const discardStaged = () => supabase.storage.from(WORKBOOK_BUCKET).remove([storagePath]);
+
+  const { data: fileBlob, error: downloadError } = await supabase.storage.from(WORKBOOK_BUCKET).download(storagePath);
+  if (downloadError || !fileBlob) {
+    return NextResponse.json({ error: `Uploaded file not found: ${downloadError?.message}` }, { status: 400 });
+  }
+  const fileSize = fileBlob.size;
+
+  if (!ALLOWED_WORKBOOK_EXTENSIONS.includes(workbookExtension(filename))) {
+    await discardStaged();
+    return NextResponse.json({ error: `Unsupported file extension: ${workbookExtension(filename)}` }, { status: 400 });
+  }
+  if (fileSize === 0 || fileSize > MAX_UPLOAD_BYTES) {
+    await discardStaged();
+    return NextResponse.json({ error: `File is empty or exceeds the ${MAX_UPLOAD_LABEL} limit` }, { status: 400 });
+  }
+
   const { data: existingSubmission } = await supabase
     .from("contractor_submissions")
     .select("id, upload_id, tender_uploads(storage_path)")
@@ -54,6 +79,7 @@ export async function POST(request: NextRequest) {
     .eq("contractor_id", contractorId)
     .maybeSingle();
   if (existingSubmission?.upload_id && !replace) {
+    await discardStaged();
     return NextResponse.json(
       {
         error: "A quotation has already been uploaded for this contractor. Re-upload to replace it, or use the chat to ask questions.",
@@ -63,16 +89,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
+  const buffer = Buffer.from(await fileBlob.arrayBuffer());
   const fileHash = hashBuffer(buffer);
 
   let manifest;
   try {
-    manifest = await parseWorkbook(buffer, file.name);
+    manifest = await parseWorkbook(buffer, filename);
   } catch (err) {
+    await discardStaged();
     return NextResponse.json({ error: `Workbook could not be opened: ${(err as Error).message}` }, { status: 422 });
   }
   if (manifest.sheetCount === 0) {
+    await discardStaged();
     return NextResponse.json({ error: "Workbook contains no worksheets." }, { status: 422 });
   }
 
@@ -92,25 +120,15 @@ export async function POST(request: NextRequest) {
     await supabase.from("tender_uploads").delete().eq("id", existingSubmission.upload_id);
   }
 
-  const uploadId = randomUUID();
-  const storagePath = `${tender.organization_id}/${tenderId}/contractor-${uploadId}/${file.name}`;
-
-  const { error: storageError } = await supabase.storage
-    .from("tender-workbooks")
-    .upload(storagePath, buffer, { contentType: file.type || "application/octet-stream" });
-  if (storageError) {
-    return NextResponse.json({ error: `Storage upload failed: ${storageError.message}` }, { status: 500 });
-  }
-
   const { data: uploadRow, error: uploadError } = await supabase
     .from("tender_uploads")
     .insert({
       id: uploadId,
       tender_id: tenderId,
-      original_filename: file.name,
+      original_filename: filename,
       storage_path: storagePath,
       file_hash: fileHash,
-      file_size_bytes: file.size,
+      file_size_bytes: fileSize,
       status: "queued",
       uploaded_by: user.userId,
     })

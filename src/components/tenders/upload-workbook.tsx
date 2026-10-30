@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { UploadCloud, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { stageWorkbookUpload } from "@/lib/upload-client";
+import { MAX_UPLOAD_LABEL } from "@/lib/upload-limits";
 
 // Rotates through these while the server is parsing + running AI interpretation.
 // Purely cosmetic (we don't have granular server progress on a single request),
@@ -55,13 +57,13 @@ export function UploadWorkbook({ tenderId, replace }: { tenderId: string; replac
     setMessageIndex(0);
     setProgress(0);
 
-    const formData = new FormData();
-    formData.append("tenderId", tenderId);
-    formData.append("file", file);
-    if (replace) formData.append("replace", "true");
-
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const staged = await stageWorkbookUpload(file, { tenderId, kind: "tender" });
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenderId, ...staged, filename: file.name, replace: !!replace }),
+      });
       const json = await res.json();
 
       if (!res.ok) {
@@ -119,7 +121,7 @@ export function UploadWorkbook({ tenderId, replace }: { tenderId: string; replac
           {replace && (
             <p className="text-xs text-[var(--warning)]">This replaces the current BOQ and its saved data.</p>
           )}
-          <p className="text-xs text-[var(--muted)]">.xlsx or .xls, up to 25MB</p>
+          <p className="text-xs text-[var(--muted)]">.xlsx or .xls, up to {MAX_UPLOAD_LABEL}</p>
           <Button variant="outline" size="sm" onClick={() => inputRef.current?.click()}>
             Browse files
           </Button>

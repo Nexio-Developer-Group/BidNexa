@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { UploadCloud, FileSpreadsheet, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { stageWorkbookUpload } from "@/lib/upload-client";
+import { MAX_UPLOAD_LABEL } from "@/lib/upload-limits";
 
 // Mirrors the tender BOQ upload screen's rotating progress copy so both
 // uploads feel like the same product, not two different flows.
@@ -73,14 +75,13 @@ export function ContractorUploadScreen({
     setMessageIndex(0);
     setProgress(0);
 
-    const formData = new FormData();
-    formData.append("tenderId", tenderId);
-    formData.append("contractorId", contractorId);
-    formData.append("file", file);
-    if (hasExistingUpload) formData.append("replace", "true");
-
     try {
-      const res = await fetch("/api/contractors/upload", { method: "POST", body: formData });
+      const staged = await stageWorkbookUpload(file, { tenderId, kind: "contractor" });
+      const res = await fetch("/api/contractors/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenderId, contractorId, ...staged, filename: file.name, replace: hasExistingUpload }),
+      });
       const json = await res.json();
 
       if (!res.ok) {
@@ -158,7 +159,7 @@ export function ContractorUploadScreen({
           {hasExistingUpload && (
             <p className="text-xs text-[var(--warning)]">This replaces the existing quotation and its saved data.</p>
           )}
-          <p className="text-xs text-[var(--muted)]">.xlsx or .xls, up to 25MB</p>
+          <p className="text-xs text-[var(--muted)]">.xlsx or .xls, up to {MAX_UPLOAD_LABEL}</p>
           <Button variant="outline" size="sm" onClick={() => inputRef.current?.click()}>
             Browse files
           </Button>
