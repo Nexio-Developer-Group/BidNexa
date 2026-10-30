@@ -73,7 +73,7 @@ rather than inventing a result for an upstream formula with no cached value.
 
 - Anthropic enforces per-account rate limits; a sheet (tender or contractor) that fails interpretation
   because of one is correctly flagged as an `extraction_issue` / `partially_processed` upload rather
-  than silently producing nothing. Reprocessing (`/api/tenders/[id]/uploads/[uploadId]/reprocess`)
+  than silently producing nothing. Reprocessing (`/api/tenders/[id]/uploads/[uploadId]/process` with `reset`)
   picks it back up once the limit clears, reusing the stored file.
 - PDF export is not implemented — only Excel (BOQ export, contractor comparison). Excel covers the
   spec's reporting requirement; PDF would be an additive follow-up.

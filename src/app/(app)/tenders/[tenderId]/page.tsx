@@ -13,11 +13,13 @@ import { Button } from "@/components/ui/button";
 import { UploadWorkbook } from "@/components/tenders/upload-workbook";
 import { ReplaceBoq } from "@/components/tenders/replace-boq";
 import { ReprocessUploadButton } from "@/components/tenders/reprocess-upload-button";
+import { ResumeProcessing } from "@/components/tenders/resume-processing";
 import { TenderStatusBadge, UploadStatusBadge, SeverityBadge } from "@/components/tenders/status-badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { formatDate, formatDateTime, formatNumber, formatCurrency } from "@/lib/utils";
 import { isDisplayableBoqRow } from "@/lib/validation/boq-display";
 
+const IN_PROGRESS_UPLOAD_STATUSES = new Set(["queued", "parsing", "ai_interpretation"]);
 const STUCK_UPLOAD_STATUSES = new Set(["failed", "partially_processed", "queued", "parsing", "ai_interpretation"]);
 
 export default async function TenderDetailPage({ params }: PageProps<"/tenders/[tenderId]">) {
@@ -137,6 +139,9 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col items-start gap-2">
+                        {IN_PROGRESS_UPLOAD_STATUSES.has(u.status) && (
+                          <ResumeProcessing tenderId={tenderId} uploadId={u.id} />
+                        )}
                         {STUCK_UPLOAD_STATUSES.has(u.status) && (
                           <ReprocessUploadButton tenderId={tenderId} uploadId={u.id} />
                         )}

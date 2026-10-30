@@ -7,6 +7,7 @@ import { UploadCloud, FileSpreadsheet, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { stageWorkbookUpload } from "@/lib/upload-client";
+import { runProcessing } from "@/lib/process-client";
 import { MAX_UPLOAD_LABEL } from "@/lib/upload-limits";
 
 // Mirrors the tender BOQ upload screen's rotating progress copy so both
@@ -48,6 +49,7 @@ export function ContractorUploadScreen({
   const [uploading, setUploading] = useState(false);
   const [messageIndex, setMessageIndex] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [sheetProgress, setSheetProgress] = useState<{ done: number; total: number } | null>(null);
   const [summary, setSummary] = useState<UploadSummary | null>(null);
 
   useEffect(() => {
@@ -74,6 +76,7 @@ export function ContractorUploadScreen({
     setUploading(true);
     setMessageIndex(0);
     setProgress(0);
+    setSheetProgress(null);
 
     try {
       const staged = await stageWorkbookUpload(file, { tenderId, kind: "contractor" });
@@ -90,16 +93,23 @@ export function ContractorUploadScreen({
         return;
       }
 
+      const result = await runProcessing(tenderId, json.uploadId, {
+        onProgress: (p) => {
+          setSheetProgress({ done: p.sheetsDone, total: p.sheetsTotal });
+          setProgress((cur) => Math.max(cur, Math.min(95, (p.sheetsDone / p.sheetsTotal) * 100)));
+        },
+      });
+
       setProgress(100);
       setTimeout(() => {
         setUploading(false);
         setSummary({
           uploadId: json.uploadId,
           submissionId: json.submissionId,
-          bidItemsCreated: json.bidItemsCreated,
-          matchedCount: json.matchedCount,
-          unmatchedCount: json.unmatchedCount,
-          issuesRaised: json.issuesRaised,
+          bidItemsCreated: result.bidItemsCreated,
+          matchedCount: result.matchedCount,
+          unmatchedCount: result.unmatchedCount,
+          issuesRaised: result.issuesRaised,
         });
       }, 400);
     } catch (err) {
@@ -148,7 +158,11 @@ export function ContractorUploadScreen({
             {PROCESSING_MESSAGES[messageIndex]}
           </p>
           <Progress value={progress} className="w-64" />
-          <p className="text-xs text-[var(--muted)]">This can take a minute for larger workbooks.</p>
+          <p className="text-xs text-[var(--muted)]">
+            {sheetProgress
+              ? `Worksheet ${Math.min(sheetProgress.done + 1, sheetProgress.total)} of ${sheetProgress.total} — large workbooks can take several minutes. Keep this tab open.`
+              : "This can take a few minutes for larger workbooks."}
+          </p>
         </>
       ) : (
         <>

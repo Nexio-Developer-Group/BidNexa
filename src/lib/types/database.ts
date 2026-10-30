@@ -548,6 +548,7 @@ export type Database = {
           id: string
           original_filename: string
           parser_version: string
+          processing_lease_until: string | null
           status: Database["public"]["Enums"]["upload_status"]
           storage_path: string
           tender_id: string
@@ -561,6 +562,7 @@ export type Database = {
           id?: string
           original_filename: string
           parser_version?: string
+          processing_lease_until?: string | null
           status?: Database["public"]["Enums"]["upload_status"]
           storage_path: string
           tender_id: string
@@ -574,6 +576,7 @@ export type Database = {
           id?: string
           original_filename?: string
           parser_version?: string
+          processing_lease_until?: string | null
           status?: Database["public"]["Enums"]["upload_status"]
           storage_path?: string
           tender_id?: string

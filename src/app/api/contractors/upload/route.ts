@@ -1,24 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireCurrentUser } from "@/lib/org";
-import { parseWorkbook, hashBuffer } from "@/lib/excel/parser";
+import { hashBuffer } from "@/lib/excel/parser";
 import {
   ALLOWED_WORKBOOK_EXTENSIONS,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_LABEL,
   WORKBOOK_BUCKET,
+  looksLikeWorkbook,
   workbookExtension,
 } from "@/lib/upload-limits";
-import { runContractorExtractionPipeline, clearSubmissionBidItems } from "@/lib/validation/pipeline";
+import { clearSubmissionBidItems } from "@/lib/validation/pipeline";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 /**
- * Parses a contractor's quotation workbook through the same deterministic +
- * Claude pipeline used for the tender's own BOQ, matches rows to the tender's
- * committed requirements, and writes draft (uncommitted) bid items. Nothing
- * here is visible in a comparison until it's reviewed and saved.
+ * Registers a contractor's already-staged quotation workbook. Parsing, Claude
+ * extraction and matching against the tender's committed requirements run as
+ * resumable steps (see the process route), which write draft (uncommitted)
+ * bid items — nothing is visible in a comparison until reviewed and saved.
  */
 export async function POST(request: NextRequest) {
   const user = await requireCurrentUser();
@@ -92,16 +93,9 @@ export async function POST(request: NextRequest) {
   const buffer = Buffer.from(await fileBlob.arrayBuffer());
   const fileHash = hashBuffer(buffer);
 
-  let manifest;
-  try {
-    manifest = await parseWorkbook(buffer, filename);
-  } catch (err) {
+  if (!looksLikeWorkbook(buffer)) {
     await discardStaged();
-    return NextResponse.json({ error: `Workbook could not be opened: ${(err as Error).message}` }, { status: 422 });
-  }
-  if (manifest.sheetCount === 0) {
-    await discardStaged();
-    return NextResponse.json({ error: "Workbook contains no worksheets." }, { status: 422 });
+    return NextResponse.json({ error: "This file is not a valid Excel workbook." }, { status: 422 });
   }
 
   // Replacing an existing quotation: wipe its old bid items, issues, and
@@ -150,16 +144,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: subError?.message ?? "Failed to record submission" }, { status: 500 });
   }
 
-  const result = await runContractorExtractionPipeline(supabase, {
-    uploadId,
-    tenderId,
-    submissionId: submission.id,
-    manifest,
-  });
-
-  return NextResponse.json({
-    uploadId,
-    submissionId: submission.id,
-    ...result,
-  });
+  return NextResponse.json({ uploadId, submissionId: submission.id });
 }

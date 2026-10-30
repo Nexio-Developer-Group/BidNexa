@@ -7,6 +7,7 @@ import { UploadCloud, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { stageWorkbookUpload } from "@/lib/upload-client";
+import { runProcessing } from "@/lib/process-client";
 import { MAX_UPLOAD_LABEL } from "@/lib/upload-limits";
 
 // Rotates through these while the server is parsing + running AI interpretation.
@@ -32,6 +33,7 @@ export function UploadWorkbook({ tenderId, replace }: { tenderId: string; replac
   const [uploading, setUploading] = useState(false);
   const [messageIndex, setMessageIndex] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [sheetProgress, setSheetProgress] = useState<{ done: number; total: number } | null>(null);
 
   useEffect(() => {
     if (!uploading) return;
@@ -56,6 +58,7 @@ export function UploadWorkbook({ tenderId, replace }: { tenderId: string; replac
     setUploading(true);
     setMessageIndex(0);
     setProgress(0);
+    setSheetProgress(null);
 
     try {
       const staged = await stageWorkbookUpload(file, { tenderId, kind: "tender" });
@@ -72,9 +75,18 @@ export function UploadWorkbook({ tenderId, replace }: { tenderId: string; replac
         return;
       }
 
+      // Extraction runs in resumable server steps; this keeps going until it's
+      // genuinely complete, surviving timeouts and transient errors.
+      const result = await runProcessing(tenderId, json.uploadId, {
+        onProgress: (p) => {
+          setSheetProgress({ done: p.sheetsDone, total: p.sheetsTotal });
+          setProgress((cur) => Math.max(cur, Math.min(95, (p.sheetsDone / p.sheetsTotal) * 100)));
+        },
+      });
+
       setProgress(100);
       toast.success(
-        `Processed ${json.sheetsProcessed} sheet(s), ${json.requirementsCreated} item(s) extracted. Review and save to the BOQ.`
+        `Processed ${result.sheetsProcessed} sheet(s), ${result.requirementsCreated} item(s) extracted. Review and save to the BOQ.`
       );
       setTimeout(() => {
         setUploading(false);
@@ -110,7 +122,11 @@ export function UploadWorkbook({ tenderId, replace }: { tenderId: string; replac
             {PROCESSING_MESSAGES[messageIndex]}
           </p>
           <Progress value={progress} className="w-64" />
-          <p className="text-xs text-[var(--muted)]">This can take a minute for larger workbooks.</p>
+          <p className="text-xs text-[var(--muted)]">
+            {sheetProgress
+              ? `Worksheet ${Math.min(sheetProgress.done + 1, sheetProgress.total)} of ${sheetProgress.total} — large workbooks can take several minutes. Keep this tab open.`
+              : "This can take a few minutes for larger workbooks."}
+          </p>
         </>
       ) : (
         <>

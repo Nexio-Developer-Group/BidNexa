@@ -16,7 +16,7 @@ export function getClient(): Anthropic {
 }
 
 export const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5-5";
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
 const TIMEOUT_MS = 45_000;
 
 // Forced tool_choice ("any"/"tool") is rejected on Claude Sonnet 5.5, so the
@@ -100,7 +100,9 @@ export async function interpretChunk(userMessage: string): Promise<ChunkInterpre
         lastError = err instanceof Error ? err.message : "Unknown Claude API error";
       }
       if (attempt < MAX_RETRIES) {
-        await new Promise((r) => setTimeout(r, attempt * 1000));
+        // Exponential backoff with jitter so parallel chunks don't retry in lockstep.
+        const base = err instanceof Anthropic.RateLimitError ? 2000 : 1000;
+        await new Promise((r) => setTimeout(r, base * 2 ** (attempt - 1) * (0.75 + Math.random() * 0.5)));
       }
     }
   }

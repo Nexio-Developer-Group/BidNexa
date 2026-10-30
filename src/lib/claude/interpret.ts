@@ -1,10 +1,14 @@
 import type { SheetManifestEntry, ExtractedCell } from "@/lib/excel/types";
+import { mapWithConcurrency } from "@/lib/concurrency";
 import { interpretChunk } from "./client";
 import { buildChunkUserMessage, type RowForPrompt } from "./prompts";
 import type { InterpretedRow } from "./schema";
 
 const ROWS_PER_CHUNK = 35;
 const HEADER_CONTEXT_ROWS = 3;
+// Chunks are independent, so a big sheet is interpreted in parallel rather than
+// one Claude round-trip at a time.
+const CHUNK_CONCURRENCY = Number(process.env.ANTHROPIC_CONCURRENCY) || 6;
 
 function cellsToRows(cells: ExtractedCell[]): Map<number, ExtractedCell[]> {
   const byRow = new Map<number, ExtractedCell[]>();
@@ -59,12 +63,7 @@ export async function interpretSheet(
     .slice(0, HEADER_CONTEXT_ROWS)
     .map((r) => toRowForPrompt(r, byRow.get(r)!));
 
-  const allRows: InterpretedRow[] = [];
-  const chunkErrors: SheetInterpretationResult["chunkErrors"] = [];
-  let succeeded = 0;
-
-  for (let i = 0; i < chunks.length; i++) {
-    const rowIndexesInChunk = chunks[i];
+  const outcomes = await mapWithConcurrency(chunks, CHUNK_CONCURRENCY, async (rowIndexesInChunk, i) => {
     const rowsForPrompt = rowIndexesInChunk.map((r) => toRowForPrompt(r, byRow.get(r)!));
 
     const message = buildChunkUserMessage({
@@ -77,15 +76,19 @@ export async function interpretSheet(
       isLastChunk: i === chunks.length - 1,
     });
 
-    const result = await interpretChunk(message);
+    return { rowIndexesInChunk, result: await interpretChunk(message) };
+  });
+
+  const allRows: InterpretedRow[] = [];
+  const chunkErrors: SheetInterpretationResult["chunkErrors"] = [];
+  let succeeded = 0;
+
+  outcomes.forEach(({ rowIndexesInChunk, result }, i) => {
+    const rowRange: [number, number] = [rowIndexesInChunk[0], rowIndexesInChunk[rowIndexesInChunk.length - 1]];
 
     if (!result.ok || !result.data) {
-      chunkErrors.push({
-        chunkIndex: i,
-        rowRange: [rowIndexesInChunk[0], rowIndexesInChunk[rowIndexesInChunk.length - 1]],
-        error: result.error ?? "Unknown interpretation failure",
-      });
-      continue;
+      chunkErrors.push({ chunkIndex: i, rowRange, error: result.error ?? "Unknown interpretation failure" });
+      return;
     }
 
     succeeded++;
@@ -94,11 +97,11 @@ export async function interpretSheet(
     if (result.data.unresolved_row_indexes.length > 0) {
       chunkErrors.push({
         chunkIndex: i,
-        rowRange: [rowIndexesInChunk[0], rowIndexesInChunk[rowIndexesInChunk.length - 1]],
+        rowRange,
         error: `Model reported ${result.data.unresolved_row_indexes.length} unresolved row(s): ${result.data.unresolved_row_indexes.join(", ")}`,
       });
     }
-  }
+  });
 
   return {
     sheetName: sheet.sheetName,

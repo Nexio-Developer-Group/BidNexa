@@ -1,20 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireCurrentUser } from "@/lib/org";
-import { parseWorkbook, hashBuffer } from "@/lib/excel/parser";
+import { hashBuffer } from "@/lib/excel/parser";
 import {
   ALLOWED_WORKBOOK_EXTENSIONS,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_LABEL,
   WORKBOOK_BUCKET,
+  looksLikeWorkbook,
   workbookExtension,
 } from "@/lib/upload-limits";
-import { runExtractionPipeline, clearUploadExtractionData } from "@/lib/validation/pipeline";
+import { clearUploadExtractionData } from "@/lib/validation/pipeline";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
-
+/**
+ * Registers an already-staged workbook. Heavy work (parse + AI extraction) is
+ * deliberately not done here: it runs as resumable steps via the process route.
+ */
 export async function POST(request: NextRequest) {
   const user = await requireCurrentUser();
   const supabase = await createSupabaseServerClient();
@@ -112,20 +116,9 @@ export async function POST(request: NextRequest) {
   const buffer = Buffer.from(arrayBuffer);
   const fileHash = hashBuffer(buffer);
 
-  let manifest;
-  try {
-    manifest = await parseWorkbook(buffer, filename);
-  } catch (err) {
+  if (!looksLikeWorkbook(buffer)) {
     await discardStaged();
-    return NextResponse.json(
-      { error: `Workbook could not be opened: ${(err as Error).message}` },
-      { status: 422 }
-    );
-  }
-
-  if (manifest.sheetCount === 0) {
-    await discardStaged();
-    return NextResponse.json({ error: "Workbook contains no worksheets." }, { status: 422 });
+    return NextResponse.json({ error: "This file is not a valid Excel workbook." }, { status: 422 });
   }
 
   // Replacing: wipe the old upload's extracted data (requirements, sections,
@@ -164,11 +157,5 @@ export async function POST(request: NextRequest) {
 
   await supabase.from("tenders").update({ status: "processing" }).eq("id", tenderId);
 
-  const result = await runExtractionPipeline(supabase, { uploadId, tenderId, manifest });
-
-  return NextResponse.json({
-    uploadId,
-    manifestSheetCount: manifest.sheetCount,
-    ...result,
-  });
+  return NextResponse.json({ uploadId });
 }
