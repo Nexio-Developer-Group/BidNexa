@@ -1,35 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireCurrentUser } from "@/lib/org";
 import { parseWorkbook, hashBuffer } from "@/lib/excel/parser";
+import {
+  ALLOWED_WORKBOOK_EXTENSIONS,
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_LABEL,
+  WORKBOOK_BUCKET,
+  workbookExtension,
+} from "@/lib/upload-limits";
 import { runExtractionPipeline, clearUploadExtractionData } from "@/lib/validation/pipeline";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-const MAX_SIZE_BYTES = 25 * 1024 * 1024;
-const ALLOWED_EXTENSIONS = [".xlsx", ".xls"];
-const ALLOWED_MIME_TYPES = [
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-excel",
-  "application/octet-stream", // some browsers send this for .xlsx
-];
 
 export async function POST(request: NextRequest) {
   const user = await requireCurrentUser();
   const supabase = await createSupabaseServerClient();
 
-  const formData = await request.formData();
-  const tenderId = formData.get("tenderId");
-  const file = formData.get("file");
-  const replace = formData.get("replace") === "true";
+  // The browser uploads the file straight to Storage (see /api/upload/sign) so
+  // it never hits the serverless body-size cap; this route gets its location.
+  const body = await request.json().catch(() => null);
+  const { tenderId, uploadId, storagePath, filename } = body ?? {};
+  const replace = body?.replace === true;
 
   if (typeof tenderId !== "string" || !tenderId) {
     return NextResponse.json({ error: "tenderId is required" }, { status: 400 });
   }
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "file is required" }, { status: 400 });
+  if (
+    typeof uploadId !== "string" ||
+    typeof storagePath !== "string" ||
+    typeof filename !== "string" ||
+    !uploadId ||
+    !storagePath ||
+    !filename
+  ) {
+    return NextResponse.json({ error: "uploadId, storagePath and filename are required" }, { status: 400 });
   }
 
   const { data: tender, error: tenderError } = await supabase
@@ -42,18 +49,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Tender not found or not accessible" }, { status: 404 });
   }
 
-  const ext = "." + (file.name.split(".").pop() || "").toLowerCase();
-  if (!ALLOWED_EXTENSIONS.includes(ext)) {
-    return NextResponse.json({ error: `Unsupported file extension: ${ext}` }, { status: 400 });
+  if (!storagePath.startsWith(`${tender.organization_id}/${tenderId}/${uploadId}/`)) {
+    return NextResponse.json({ error: "Invalid storage path" }, { status: 400 });
   }
-  if (file.size === 0) {
+
+  const discardStaged = () => supabase.storage.from(WORKBOOK_BUCKET).remove([storagePath]);
+
+  const { data: fileBlob, error: downloadError } = await supabase.storage.from(WORKBOOK_BUCKET).download(storagePath);
+  if (downloadError || !fileBlob) {
+    return NextResponse.json({ error: `Uploaded file not found: ${downloadError?.message}` }, { status: 400 });
+  }
+  const fileSize = fileBlob.size;
+
+  if (!ALLOWED_WORKBOOK_EXTENSIONS.includes(workbookExtension(filename))) {
+    await discardStaged();
+    return NextResponse.json({ error: `Unsupported file extension: ${workbookExtension(filename)}` }, { status: 400 });
+  }
+  if (fileSize === 0) {
+    await discardStaged();
     return NextResponse.json({ error: "File is empty" }, { status: 400 });
   }
-  if (file.size > MAX_SIZE_BYTES) {
-    return NextResponse.json({ error: "File exceeds the 25MB limit" }, { status: 400 });
-  }
-  if (file.type && !ALLOWED_MIME_TYPES.includes(file.type)) {
-    return NextResponse.json({ error: `Unsupported MIME type: ${file.type}` }, { status: 400 });
+  if (fileSize > MAX_UPLOAD_BYTES) {
+    await discardStaged();
+    return NextResponse.json({ error: `File exceeds the ${MAX_UPLOAD_LABEL} limit` }, { status: 400 });
   }
 
   // Only one BOQ workbook per tender. A stuck/failed upload can be retried
@@ -79,6 +97,7 @@ export async function POST(request: NextRequest) {
   const { data: anyExisting } = await existingQuery.limit(1).maybeSingle();
 
   if (anyExisting && !replace) {
+    await discardStaged();
     return NextResponse.json(
       {
         error: "A BOQ workbook has already been uploaded for this tender. Replace it to upload a different file, or use reprocess to retry extraction on the existing one.",
@@ -89,14 +108,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const arrayBuffer = await file.arrayBuffer();
+  const arrayBuffer = await fileBlob.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
   const fileHash = hashBuffer(buffer);
 
   let manifest;
   try {
-    manifest = await parseWorkbook(buffer, file.name);
+    manifest = await parseWorkbook(buffer, filename);
   } catch (err) {
+    await discardStaged();
     return NextResponse.json(
       { error: `Workbook could not be opened: ${(err as Error).message}` },
       { status: 422 }
@@ -104,6 +124,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (manifest.sheetCount === 0) {
+    await discardStaged();
     return NextResponse.json({ error: "Workbook contains no worksheets." }, { status: 422 });
   }
 
@@ -119,29 +140,15 @@ export async function POST(request: NextRequest) {
     await supabase.from("tender_uploads").delete().eq("id", anyExisting.id);
   }
 
-  const uploadId = randomUUID();
-  const storagePath = `${tender.organization_id}/${tenderId}/${uploadId}/${file.name}`;
-
-  const { error: storageError } = await supabase.storage
-    .from("tender-workbooks")
-    .upload(storagePath, buffer, {
-      contentType: file.type || "application/octet-stream",
-      upsert: false,
-    });
-
-  if (storageError) {
-    return NextResponse.json({ error: `Storage upload failed: ${storageError.message}` }, { status: 500 });
-  }
-
   const { data: uploadRow, error: uploadInsertError } = await supabase
     .from("tender_uploads")
     .insert({
       id: uploadId,
       tender_id: tenderId,
-      original_filename: file.name,
+      original_filename: filename,
       storage_path: storagePath,
       file_hash: fileHash,
-      file_size_bytes: file.size,
+      file_size_bytes: fileSize,
       status: "queued",
       uploaded_by: user.userId,
     })
