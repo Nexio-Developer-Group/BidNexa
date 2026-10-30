@@ -63,7 +63,7 @@ export default function NewTenderPage() {
       <Card>
         <CardHeader>
           <CardTitle>Tender details</CardTitle>
-          <CardDescription>Basic information used across dashboards and reports.</CardDescription>
+          <CardDescription>Basic information used across dashboards and comparisons.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">

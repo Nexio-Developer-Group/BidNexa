@@ -9,7 +9,6 @@ import {
   PlusCircle,
   Users,
   GitCompareArrows,
-  FileBarChart,
   History,
   Settings,
   X,
@@ -23,7 +22,6 @@ const NAV_ITEMS = [
   { href: "/tenders/new", label: "Create Tender", icon: PlusCircle },
   { href: "/contractors", label: "Contractors", icon: Users },
   { href: "/comparisons", label: "Bid Comparisons", icon: GitCompareArrows },
-  { href: "/reports", label: "Reports", icon: FileBarChart },
   { href: "/activity", label: "Activity & Audit", icon: History },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

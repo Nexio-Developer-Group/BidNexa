@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireCurrentUser } from "@/lib/org";
 import { parseWorkbook, hashBuffer } from "@/lib/excel/parser";
-import { runExtractionPipeline } from "@/lib/validation/pipeline";
+import { runExtractionPipeline, clearUploadExtractionData } from "@/lib/validation/pipeline";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const tenderId = formData.get("tenderId");
   const file = formData.get("file");
+  const replace = formData.get("replace") === "true";
 
   if (typeof tenderId !== "string" || !tenderId) {
     return NextResponse.json({ error: "tenderId is required" }, { status: 400 });
@@ -55,8 +56,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Unsupported MIME type: ${file.type}` }, { status: 400 });
   }
 
-  // Only one BOQ workbook per tender. A stuck/failed upload is retried via
-  // the reprocess endpoint (reuses the stored file), not by uploading again.
+  // Only one BOQ workbook per tender. A stuck/failed upload can be retried
+  // via reprocess (reuses the stored file) or, if the file itself is the
+  // problem (e.g. it fails to parse every time), explicitly replaced — the
+  // dedicated "Replace BOQ" flow always sends replace=true; a plain upload
+  // call without it is rejected so nothing is overwritten by accident.
   const { data: anyExisting } = await supabase
     .from("tender_uploads")
     .select("id, status")
@@ -64,10 +68,10 @@ export async function POST(request: NextRequest) {
     .limit(1)
     .maybeSingle();
 
-  if (anyExisting) {
+  if (anyExisting && !replace) {
     return NextResponse.json(
       {
-        error: "A BOQ workbook has already been uploaded for this tender. Only one BOQ per tender is allowed — use reprocess to retry extraction on the existing upload.",
+        error: "A BOQ workbook has already been uploaded for this tender. Replace it to upload a different file, or use reprocess to retry extraction on the existing one.",
         uploadId: anyExisting.id,
         status: anyExisting.status,
       },
@@ -91,6 +95,14 @@ export async function POST(request: NextRequest) {
 
   if (manifest.sheetCount === 0) {
     return NextResponse.json({ error: "Workbook contains no worksheets." }, { status: 422 });
+  }
+
+  // Replacing: wipe the old upload's extracted data (requirements, sections,
+  // issues, sheet manifest — committed or not) and the tender_uploads row
+  // itself before the new one is inserted, so the new file starts clean.
+  if (anyExisting) {
+    await clearUploadExtractionData(supabase, anyExisting.id);
+    await supabase.from("tender_uploads").delete().eq("id", anyExisting.id);
   }
 
   const uploadId = randomUUID();

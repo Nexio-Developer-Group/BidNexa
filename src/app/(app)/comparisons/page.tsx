@@ -1,12 +1,10 @@
 import { Fragment } from "react";
-import Link from "next/link";
 import { requireCurrentUser } from "@/lib/org";
 import { listTenders } from "@/lib/data/tenders";
 import { getComparisonData } from "@/lib/data/contractors";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 
 export default async function ComparisonsPage({ searchParams }: PageProps<"/comparisons">) {
@@ -59,17 +57,12 @@ export default async function ComparisonsPage({ searchParams }: PageProps<"/comp
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="truncate text-lg font-semibold sm:text-xl">Bid Comparison — {selectedTender.title}</h2>
-          <p className="text-sm text-[var(--muted)]">
-            {submissions.length} contractor submission(s) · {requirements.length} priced item(s) · tender total{" "}
-            {formatCurrency(tenderGrandTotal, currency)}
-          </p>
-        </div>
-        <Button variant="outline" asChild className="shrink-0">
-          <Link href={`/reports?tenderId=${selectedTender.id}`}>Export comparison</Link>
-        </Button>
+      <div className="min-w-0">
+        <h2 className="truncate text-lg font-semibold sm:text-xl">Bid Comparison — {selectedTender.title}</h2>
+        <p className="text-sm text-[var(--muted)]">
+          {submissions.length} contractor submission(s) · {requirements.length} priced item(s) · tender total{" "}
+          {formatCurrency(tenderGrandTotal, currency)}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">

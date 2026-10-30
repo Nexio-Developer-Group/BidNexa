@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { UploadWorkbook } from "@/components/tenders/upload-workbook";
+import { ReplaceBoq } from "@/components/tenders/replace-boq";
 import { ReprocessUploadButton } from "@/components/tenders/reprocess-upload-button";
 import { TenderStatusBadge, UploadStatusBadge, SeverityBadge } from "@/components/tenders/status-badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
@@ -83,7 +84,7 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
           <CardDescription>
             {uploads.length === 0
               ? "Upload the tender BOQ workbook. Every worksheet is parsed and interpreted before anything is marked complete."
-              : "Only one BOQ workbook is allowed per tender. If extraction got stuck, use Reprocess below instead of re-uploading."}
+              : "Only one BOQ workbook is kept per tender. Use Reprocess to retry extraction on the same file, or Replace BOQ to upload a different one."}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -110,17 +111,37 @@ export default async function TenderDetailPage({ params }: PageProps<"/tenders/[
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        {(u.workbook_sheets ?? []).map((s) => (
-                          <Badge key={s.id} variant={s.validation_status === "valid" ? "success" : s.validation_status === "warnings" ? "warning" : "danger"}>
-                            {s.sheet_name} ({s.processed_cell_count})
-                          </Badge>
-                        ))}
+                        {(u.workbook_sheets ?? []).map((s) => {
+                          const sheetErrors = Array.isArray(s.errors) ? (s.errors as string[]) : [];
+                          return (
+                            <Badge
+                              key={s.id}
+                              variant={s.validation_status === "valid" ? "success" : s.validation_status === "warnings" ? "warning" : "danger"}
+                              title={sheetErrors.join("; ") || undefined}
+                            >
+                              {s.sheet_name} ({s.processed_cell_count})
+                            </Badge>
+                          );
+                        })}
                       </div>
+                      {(u.workbook_sheets ?? [])
+                        .filter((s) => s.validation_status === "invalid")
+                        .map((s) => {
+                          const sheetErrors = Array.isArray(s.errors) ? (s.errors as string[]) : [];
+                          return sheetErrors.length > 0 ? (
+                            <p key={s.id} className="mt-1 max-w-xs text-xs text-[var(--danger)]">
+                              {s.sheet_name}: {sheetErrors.join("; ")}
+                            </p>
+                          ) : null;
+                        })}
                     </TableCell>
                     <TableCell>
-                      {STUCK_UPLOAD_STATUSES.has(u.status) && (
-                        <ReprocessUploadButton tenderId={tenderId} uploadId={u.id} />
-                      )}
+                      <div className="flex flex-col items-start gap-2">
+                        {STUCK_UPLOAD_STATUSES.has(u.status) && (
+                          <ReprocessUploadButton tenderId={tenderId} uploadId={u.id} />
+                        )}
+                        <ReplaceBoq tenderId={tenderId} />
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

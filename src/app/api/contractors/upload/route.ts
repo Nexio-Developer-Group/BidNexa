@@ -78,9 +78,12 @@ export async function POST(request: NextRequest) {
 
   // Replacing an existing quotation: wipe its old bid items, issues, and
   // sheet manifest first so the new upload starts clean instead of layering
-  // on top of stale draft/committed rows.
+  // on top of stale draft/committed rows, and drop the old tender_uploads
+  // row itself (contractor_submissions.upload_id is about to move to the
+  // new upload; the FK is ON DELETE SET NULL so this is safe).
   if (existingSubmission?.upload_id) {
     await clearSubmissionBidItems(supabase, existingSubmission.id, existingSubmission.upload_id);
+    await supabase.from("tender_uploads").delete().eq("id", existingSubmission.upload_id);
   }
 
   const uploadId = randomUUID();

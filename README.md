@@ -9,7 +9,7 @@ AI-assisted tender intelligence, BOQ management, and contractor bid comparison.
 - Next.js 16 (App Router, TypeScript), Tailwind CSS v4
 - Supabase (Postgres, Auth, Storage) with Row Level Security
 - Claude (via `@anthropic-ai/sdk`) for bounded, schema-validated workbook interpretation
-- ExcelJS for deterministic workbook parsing and report generation
+- ExcelJS for deterministic workbook parsing
 - Zod for strict validation of AI output
 
 ## Environment variables
@@ -39,7 +39,7 @@ dropped), merged-cell handling, and the "never fabricate a missing value" guaran
 does **not** hit Claude or Supabase — that was instead verified with a live end-to-end run (sign-in →
 create tender → upload a BOQ with merged headers, a hidden notes sheet, an empty sheet, and formulas
 with and without cached results → AI interpretation → review → contractor quote upload with a
-quantity deviation and an unmatched item → comparison totals → Excel export), which produced correct
+quantity deviation and an unmatched item → comparison totals), which produced correct
 amounts, correctly flagged the deviation, and correctly left two formula-dependent cells "unavailable"
 rather than inventing a result for an upstream formula with no cached value.
 

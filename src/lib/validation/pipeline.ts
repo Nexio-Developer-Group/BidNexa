@@ -107,6 +107,7 @@ export async function runExtractionPipeline(
 
     if (sheet.processingStatus === "failed") {
       sheetsFailed++;
+      totalIssues++;
       await supabase.from("workbook_sheets").update({ validation_status: "invalid" }).eq("id", sheetRow.id);
       await raiseIssue(supabase, {
         uploadId,
@@ -459,7 +460,18 @@ export async function runContractorExtractionPipeline(
     }
     if (sheet.processingStatus === "failed") {
       sheetsFailed++;
+      issuesRaised++;
       await supabase.from("workbook_sheets").update({ validation_status: "invalid" }).eq("id", sheetRow.id);
+      await raiseIssue(supabase, {
+        uploadId,
+        sheetId: sheetRow.id,
+        issueType: "sheet_parse_failed",
+        severity: "blocking",
+        sourceReference: sheet.sheetName,
+        originalValue: null,
+        proposedInterpretation: null,
+        reason: sheet.errors.join("; ") || "Deterministic parsing failed for this sheet.",
+      });
       continue;
     }
 

@@ -23,7 +23,7 @@ const PROCESSING_MESSAGES = [
   "Plating up the results…",
 ];
 
-export function UploadWorkbook({ tenderId }: { tenderId: string }) {
+export function UploadWorkbook({ tenderId, replace }: { tenderId: string; replace?: boolean }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -58,6 +58,7 @@ export function UploadWorkbook({ tenderId }: { tenderId: string }) {
     const formData = new FormData();
     formData.append("tenderId", tenderId);
     formData.append("file", file);
+    if (replace) formData.append("replace", "true");
 
     try {
       const res = await fetch("/api/upload", { method: "POST", body: formData });
@@ -112,7 +113,12 @@ export function UploadWorkbook({ tenderId }: { tenderId: string }) {
       ) : (
         <>
           <UploadCloud className="h-8 w-8 text-[var(--muted)]" />
-          <p className="text-sm font-medium">Drag & drop the tender workbook here</p>
+          <p className="text-sm font-medium">
+            {replace ? "Drag & drop the replacement BOQ here" : "Drag & drop the tender workbook here"}
+          </p>
+          {replace && (
+            <p className="text-xs text-[var(--warning)]">This replaces the current BOQ and its saved data.</p>
+          )}
           <p className="text-xs text-[var(--muted)]">.xlsx or .xls, up to 25MB</p>
           <Button variant="outline" size="sm" onClick={() => inputRef.current?.click()}>
             Browse files
