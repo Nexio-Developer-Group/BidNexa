@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     .map((r) => r.upload_id)
     .filter((id): id is string => id !== null);
 
-  let existingQuery = supabase.from("tender_uploads").select("id, status").eq("tender_id", tenderId);
+  let existingQuery = supabase.from("tender_uploads").select("id, status, storage_path").eq("tender_id", tenderId);
   if (contractorUploadIds.length > 0) {
     existingQuery = existingQuery.not("id", "in", `(${contractorUploadIds.join(",")})`);
   }
@@ -108,10 +108,14 @@ export async function POST(request: NextRequest) {
   }
 
   // Replacing: wipe the old upload's extracted data (requirements, sections,
-  // issues, sheet manifest — committed or not) and the tender_uploads row
-  // itself before the new one is inserted, so the new file starts clean.
+  // issues, sheet manifest — committed or not), its file in storage, and the
+  // tender_uploads row itself before the new one is inserted, so the new
+  // file starts clean.
   if (anyExisting) {
     await clearUploadExtractionData(supabase, anyExisting.id);
+    if (anyExisting.storage_path) {
+      await supabase.storage.from("tender-workbooks").remove([anyExisting.storage_path]);
+    }
     await supabase.from("tender_uploads").delete().eq("id", anyExisting.id);
   }
 

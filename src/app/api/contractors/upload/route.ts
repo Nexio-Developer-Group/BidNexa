@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
   // by accident.
   const { data: existingSubmission } = await supabase
     .from("contractor_submissions")
-    .select("id, upload_id")
+    .select("id, upload_id, tender_uploads(storage_path)")
     .eq("tender_id", tenderId)
     .eq("contractor_id", contractorId)
     .maybeSingle();
@@ -80,9 +80,15 @@ export async function POST(request: NextRequest) {
   // sheet manifest first so the new upload starts clean instead of layering
   // on top of stale draft/committed rows, and drop the old tender_uploads
   // row itself (contractor_submissions.upload_id is about to move to the
-  // new upload; the FK is ON DELETE SET NULL so this is safe).
+  // new upload; the FK is ON DELETE SET NULL so this is safe) along with
+  // its file in storage.
   if (existingSubmission?.upload_id) {
+    const oldStoragePath = (existingSubmission.tender_uploads as unknown as { storage_path: string } | null)
+      ?.storage_path;
     await clearSubmissionBidItems(supabase, existingSubmission.id, existingSubmission.upload_id);
+    if (oldStoragePath) {
+      await supabase.storage.from("tender-workbooks").remove([oldStoragePath]);
+    }
     await supabase.from("tender_uploads").delete().eq("id", existingSubmission.upload_id);
   }
 
